@@ -125,9 +125,6 @@ def get_html_info(appeal_url):
     - the full text of the appeal decision, as a string
     - the full text of the original ALJ decision, as a string
     '''
-    # soup = make_soup(appeal_url)
-    # all_appeal_text = clean_text(soup.find("div", {"class": "field-name-body"}).getText())
-    print('appeal url', appeal_url)
     all_appeal_text, soup = initialize_get_full_text_html(appeal_url)
     orig_info = soup.find("div", {"class": "field-item even"}).find('p').getText()
     try:
@@ -135,16 +132,20 @@ def get_html_info(appeal_url):
         outcome = soup.find("div", {"class": "legal-decision-judge"}).find_previous().getText()
         orig_url = f'https://www.hhs.gov/about/agencies/dab/decisions/alj-decisions/{caseyr}/alj-{casenum}/index.html'
         all_orig_text = get_original_text(casenum, caseyr)
-
         return outcome, all_appeal_text, all_orig_text, casenum, orig_url, appeal_url
     except:
         # these babies got problems to be fixed later
-        print(appeal_url)
+        print('this has problems: not in df', appeal_url)
         pass
 
 
 def initialize_get_full_text_html(url):
     '''
+
+    Input:
+
+    Output:
+
     '''
     soup = make_soup(url)
     all_text = clean_text(soup.find("div", {"class": "field-name-body"}).getText())
@@ -168,7 +169,6 @@ def get_pdf_info(appeal_url):
     '''
     # regex in next line to have text start at same spot as html text
     all_appeal_text = re.search(r'DECISION.*', get_pdf_txt(appeal_url)).group()
-    print('appeal url', appeal_url)
     casenum, caseyr = get_orig_case_info(all_appeal_text)
     conclusion = re.search("(?<=Conclusion ).*?\.", all_appeal_text)
     if conclusion:
@@ -179,8 +179,13 @@ def get_pdf_info(appeal_url):
     all_orig_text = get_original_text(casenum, caseyr)
     return outcome, all_appeal_text, all_orig_text, casenum, orig_url, appeal_url
 
+
 def get_original_text(casenum, caseyr):
     '''
+
+    Inputs:
+
+    Output:
     '''
     try:
         orig_url = f'https://www.hhs.gov/sites/default/files/alj-{casenum}.pdf'
@@ -193,25 +198,64 @@ def get_original_text(casenum, caseyr):
 
 def combining(initial_url=STARTING_PG):
     '''
+
+    Inputs:
+
+    Outputs:
+        a test df as a proxy for what would be inputted into the db
+
+
     '''
     full_urls = get_urls_all_years(initial_url)
 
+    #initial df -- just for testing then remove
+    test_df = pd.DataFrame(columns=['dab_id', 'alj_id', 'dab_text', 'alj_text',
+                                    'dab_url', 'alj_url', 'decision'])
+    
     for year in full_urls.keys():
         # indexing list below for testing
         test_cases = full_urls[year][:3]
         for case in test_cases:
             dab_url = case[0]
-            print('dab_url', dab_url)
             dab_id = re.search(r'(?<=[dab|dab-])\d*\d', dab_url.lower()).group()
-            print('dab_id', dab_id)
             if dab_url[-4:] in ['html', '.htm']:
                 try:
                     outcome, dab_text, alj_text, alj_id, alj_url, \
                     dab_url = get_html_info(dab_url)
+                    row = [dab_id, alj_id, dab_text, alj_text, dab_url, alj_url, outcome]
+                    test_df.loc[len(test_df)] = row
                 except:
                     pass
             else:
                 outcome, dab_text, alj_text, alj_id, alj_url, \
                 dab_url = get_pdf_info(dab_url)
-            print('outcome', outcome)
+                row = [dab_id, alj_id, dab_text, alj_text, dab_url, alj_url, outcome]
+                test_df.loc[len(test_df)] = row
+    return test_df
 
+
+
+    '''
+    Webpages from test above with problems
+
+['https://hhs.gov/about/agencies/dab/decisions/board-decisions/2020/board-dab-2987/index.html',
+ 'https://hhs.gov/about/agencies/dab/decisions/board-decisions/2019/board-dab-2982/index.html',
+ 'https://hhs.gov/about/agencies/dab/decisions/board-decisions/2019/board-dab-2981/index.html',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2005/dab2007.htm',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2005/dab2006.htm',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2004/dab1956.htm',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2004/dab1955.htm',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2004/dab1954.htm',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2003/dab1903.html',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2003/dab1902.html',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2003/dab1901.html',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2003/dab1861.html',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2002/dab1860.html',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2002/dab1859.html',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2001/dab1805.html',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2001/dab1804.html',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2001/dab1803.html',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2000/dab1758.html',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2000/dab1757.html',
+ 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2000/dab1756.html']
+    '''
