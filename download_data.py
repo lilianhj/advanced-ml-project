@@ -135,7 +135,13 @@ def get_html_info(appeal_url, reject_lst, problem_lst):
     - the full text of the original ALJ decision, as a string
     '''
     all_appeal_text, soup = initialize_get_full_text_html(appeal_url)
+    
     orig_info = soup.find("div", {"class": "field-item even"}).find('p').getText()
+    alj_check = re.search("ALJ", all_appeal_text)
+    if not alj_check:
+        print("not an ALJ thing")
+        reject_lst.append(appeal_url)
+        # need to exit function but ughhh checking for a None return is so annoying
     try:
         casenum, caseyr = get_orig_case_info(orig_info)
         outcome = soup.find("div", {"class": "legal-decision-judge"}).find_previous().getText()
@@ -301,7 +307,7 @@ def combining(initial_url=STARTING_PG):
                     row = [dab_id, alj_id, dab_text, alj_text, dab_url, alj_url, outcome]
                     print("adding pdf appeal to df")
                     test_df.loc[len(test_df)] = row
-    return test_df
+    return test_df, problem_lst, reject_lst
 
 
 
