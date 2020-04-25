@@ -23,14 +23,23 @@ def get_orig_case_info(txt):
     Returns: the case number and case year of the ORIGINAL ALJ decision.
              Use this to construct the URL for the original ALJ decision.
     '''
-    case_match = re.search(r"[A-Z][A-Z]\d\d\d\d \(\d\d\d\d\)", txt)
+    case_match = re.search(r"[A-Z][A-Z](\s)?\d\d\d\d \(\d\d\d\d\)", txt)
+    if case_match:
+        caseyr = re.search(r"(?<=\()\d\d\d\d", case_match.group()).group()
     i = 0
     if not case_match:
-        case_match = re.search(r"DAB No.*?\d\)", txt)
-        i = 2
-    orig = case_match.group().split()
-    casenum = orig[i].lower()
-    caseyr = re.search(r"(?<=\()\d\d\d\d", case_match.group()).group()
+        case_match = re.search(r"DAB [A-Z][A-Z]\d\d\d\d", txt)
+        case_yr_match = re.search(r"the \w+ \d(\d)?, \d\d\d\d", txt)
+        caseyr = case_yr_match.group().split(', ')[1]
+        i = 1
+    print("case matched:", case_match.group())
+    if case_match.group().count(' ') == 1:
+        orig = case_match.group().split()
+        casenum = orig[i].lower()
+    else:
+        orig = case_match.group().split()
+        casenum = orig[0].lower() + orig[1]
+    print(f"casenum {casenum} caseyear {caseyr}")
     return casenum, caseyr
 
 
@@ -110,7 +119,7 @@ def convert_decision_binary(decision_txt):
     return outcome
 
 
-def get_html_info(appeal_url):
+def get_html_info(appeal_url, reject_lst, problem_lst):
     '''
     Takes the URL of an appeal decision (which is a HTML page),
     gets the appeal outcome,
@@ -130,12 +139,14 @@ def get_html_info(appeal_url):
     try:
         casenum, caseyr = get_orig_case_info(orig_info)
         outcome = soup.find("div", {"class": "legal-decision-judge"}).find_previous().getText()
-        orig_url = f'https://www.hhs.gov/about/agencies/dab/decisions/alj-decisions/{caseyr}/alj-{casenum}/index.html'
-        all_orig_text = get_original_text(casenum, caseyr)
+        # orig_url = f'https://www.hhs.gov/about/agencies/dab/decisions/alj-decisions/{caseyr}/alj-{casenum}/index.html'
+        all_orig_text, orig_url = get_original_text(casenum, caseyr, reject_lst)
         return outcome, all_appeal_text, all_orig_text, casenum, orig_url, appeal_url
     except:
         # these babies got problems to be fixed later
         print('this has problems: not in df', appeal_url)
+        print("adding to problem list")
+        problem_lst.append(appeal_url)
         pass
 
 
@@ -152,7 +163,7 @@ def initialize_get_full_text_html(url):
     return all_text, soup
 
 
-def get_pdf_info(appeal_url):
+def get_pdf_info(appeal_url, reject_lst):
     '''
     Takes the URL of an appeal decision (which is a pdf html page),
     gets the appeal outcome,
@@ -169,18 +180,30 @@ def get_pdf_info(appeal_url):
     '''
     # regex in next line to have text start at same spot as html text
     all_appeal_text = re.search(r'DECISION.*', get_pdf_txt(appeal_url)).group()
+    alj_check = re.search("ALJ", all_appeal_text)
+    if not alj_check:
+        print("not an ALJ thing")
+        reject_lst.append(appeal_url)
+        return
+    #strict_dab_check = re.search("^(?!DAB No.)DAB.*?\d\d\d\d", all_appeal_text)
+    strict_dab_check = [x for x in re.findall("DAB.*?\d\)", all_appeal_text) if "No." not in x]
+    dab_no_check = re.search("DAB No.*?\d\)", all_appeal_text)
+    if dab_no_check and not strict_dab_check:
+        print("no original decision")
+        reject_lst.append(appeal_url)
+        return
     casenum, caseyr = get_orig_case_info(all_appeal_text)
     conclusion = re.search("(?<=Conclusion ).*?\.", all_appeal_text)
     if conclusion:
         outcome = conclusion.group()
     else:
         outcome = 'by hand'
-    orig_url = f'https://www.hhs.gov/sites/default/files/alj-{casenum}.pdf'
-    all_orig_text = get_original_text(casenum, caseyr)
+    # orig_url = f'https://www.hhs.gov/sites/default/files/alj-{casenum}.pdf'
+    all_orig_text, orig_url = get_original_text(casenum, caseyr, reject_lst)
     return outcome, all_appeal_text, all_orig_text, casenum, orig_url, appeal_url
 
 
-def get_original_text(casenum, caseyr):
+def get_original_text(casenum, caseyr, reject_lst):
     '''
 
     Inputs:
@@ -189,11 +212,47 @@ def get_original_text(casenum, caseyr):
     '''
     try:
         orig_url = f'https://www.hhs.gov/sites/default/files/alj-{casenum}.pdf'
+        #print(orig_url)
         all_orig_text = get_pdf_txt(orig_url)
     except:
-        orig_url = f'https://www.hhs.gov/about/agencies/dab/decisions/alj-decisions/{caseyr}/alj-{casenum}/index.html'
-        all_orig_text, _ = initialize_get_full_text_html(orig_url)
-    return all_orig_text
+        print("pdf doesn't exist")
+        try:
+            orig_url = f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum}.pdf'
+            #print(orig_url)
+            all_orig_text = get_pdf_txt(orig_url) 
+        except:
+            print("pdf still doesn't exist")
+            try:
+                orig_url = f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum.upper()}.pdf'
+                #print(orig_url)
+                all_orig_text = get_pdf_txt(orig_url) 
+            except:
+                print("wow this pdf")
+                try:
+                    mod_casenum = casenum[2:]
+                    orig_url = f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/cr{mod_casenum}.pdf'
+                    #print(orig_url)
+                    all_orig_text = get_pdf_txt(orig_url)
+                except:
+                    print("holy shit")
+                    try:
+                        mod_casenum = casenum[2:]
+                        orig_url = f'https://www.hhs.gov/sites/default/files/alj-dab{mod_casenum}.pdf'
+                        #print(orig_url)
+                        all_orig_text = get_pdf_txt(orig_url)
+                    except:
+                        print("pdf really doesn't exist")
+                        orig_url = f'https://www.hhs.gov/about/agencies/dab/decisions/alj-decisions/{caseyr}/alj-{casenum}/index.html'
+                        #print(orig_url)
+                        all_orig_text, _ = initialize_get_full_text_html(orig_url)
+                        if all_orig_text.startswith("We're sorry"):
+                            print("wow now the HTML is acting up too")
+                            orig_url = f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum.upper()}.htm'
+                            print("have to figure out how to scrape from the old HTM pages")
+                            pass
+    print("preview:", all_orig_text[:50])
+    print("original decision URL:", orig_url)
+    return all_orig_text, orig_url
 
 
 def combining(initial_url=STARTING_PG):
@@ -211,26 +270,37 @@ def combining(initial_url=STARTING_PG):
     #initial df -- just for testing then remove
     test_df = pd.DataFrame(columns=['dab_id', 'alj_id', 'dab_text', 'alj_text',
                                     'dab_url', 'alj_url', 'decision'])
-    
+    problem_lst = []
+    reject_lst = []
     for year in full_urls.keys():
         # indexing list below for testing
         test_cases = full_urls[year][:3]
         for case in test_cases:
             dab_url = case[0]
             dab_id = re.search(r'(?<=[dab|dab-])\d*\d', dab_url.lower()).group()
+            print("appeal id:", dab_url)
             if dab_url[-4:] in ['html', '.htm']:
                 try:
                     outcome, dab_text, alj_text, alj_id, alj_url, \
-                    dab_url = get_html_info(dab_url)
+                    dab_url = get_html_info(dab_url, reject_lst, problem_lst)
+                    if alj_text.startswith("We're sorry"):
+                        print("this is a problem, adding to list")
+                        problem_lst.append(dab_url)
                     row = [dab_id, alj_id, dab_text, alj_text, dab_url, alj_url, outcome]
+                    print("adding HTML appeal to df")
                     test_df.loc[len(test_df)] = row
                 except:
                     pass
             else:
-                outcome, dab_text, alj_text, alj_id, alj_url, \
-                dab_url = get_pdf_info(dab_url)
-                row = [dab_id, alj_id, dab_text, alj_text, dab_url, alj_url, outcome]
-                test_df.loc[len(test_df)] = row
+                if get_pdf_info(dab_url, reject_lst): #this is what causes that weird double loop, because checking that it's not a None being returned
+                    outcome, dab_text, alj_text, alj_id, alj_url, \
+                    dab_url = get_pdf_info(dab_url, reject_lst)
+                    if alj_text.startswith("We're sorry"):
+                        print("this is a problem, adding to list")
+                        problem_lst.append(dab_url)
+                    row = [dab_id, alj_id, dab_text, alj_text, dab_url, alj_url, outcome]
+                    print("adding pdf appeal to df")
+                    test_df.loc[len(test_df)] = row
     return test_df
 
 
