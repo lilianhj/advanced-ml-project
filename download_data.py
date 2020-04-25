@@ -2,6 +2,21 @@
 Functions to download appeals data and corresponding orignal case information
 
 April 2020
+
+architecture:
+
+every year has one page of appeals (appeals in 2020, 2019, etc) - get URLs for those year pages (get_urls_all_years SHOULD do this but again i was half-asleep)
+2. for every year's page of appeals:
+get the URLs for all the appeals linked for that year (get_urls_one_year should do this)
+3. for each single appeal URL in a year:
+at this point, pull the appeal number from the link text
+pull the full text of the appeal (using a different function depending if it's HTML or pdf)
+pull the appeal decision (just the sentence for now, we'll worry about binary conversion later)
+get the case number and year of the original decision (a more robust version of get_orig_case_info)
+construct URL of original decision using case number and year. have both HTML and pdf
+go to the URL of original decision. try both HTML and pdf, if the HTML URL doesn't have a response it's a pdf so do that instead
+pull the full text of the original decision (using a different function depending if it's HTML or pdf)
+4. i'm thinking we write this straight into the database using psycopg2? obviously we can open/close cursors, etc, but this might be better than having intermediate csvs?
 '''
 import requests
 from bs4 import BeautifulSoup
