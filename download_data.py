@@ -22,6 +22,7 @@ import requests
 from bs4 import BeautifulSoup
 import re
 import urllib.request
+from urllib.error import HTTPError
 import PyPDF2
 import io
 # for testing
@@ -163,7 +164,7 @@ def get_html_info(appeal_url, reject_lst, problem_lst):
         casenum, caseyr = get_orig_case_info(orig_info)
         outcome = soup.find("div", {"class": "legal-decision-judge"}).find_previous().getText()
         # orig_url = f'https://www.hhs.gov/about/agencies/dab/decisions/alj-decisions/{caseyr}/alj-{casenum}/index.html'
-        all_orig_text, orig_url = get_original_text(casenum, caseyr)
+        all_orig_text, orig_url = get_original_text_revamp(casenum, caseyr)
         return outcome, all_appeal_text, all_orig_text, casenum, orig_url, appeal_url
     except:
         # these babies got problems to be fixed later
@@ -206,7 +207,7 @@ def get_html_info_old_format(appeal_url):
             outcome = conclusion.group()
         else:
             outcome = 'by hand'
-        all_orig_text, orig_url = get_original_text(casenum, caseyr)
+        all_orig_text, orig_url = get_original_text_revamp(casenum, caseyr)
         return outcome, all_appeal_text, all_orig_text, casenum, orig_url, appeal_url
     except:
         print("man idk it's probably not an ALJ thing")
@@ -266,65 +267,106 @@ def get_pdf_info(appeal_url, reject_lst):
     else:
         outcome = 'by hand'
     # orig_url = f'https://www.hhs.gov/sites/default/files/alj-{casenum}.pdf'
-    all_orig_text, orig_url = get_original_text(casenum, caseyr)
+    all_orig_text, orig_url = get_original_text_revamp(casenum, caseyr)
     return outcome, all_appeal_text, all_orig_text, casenum, orig_url, appeal_url
 
-
-def get_original_text(casenum, caseyr):
+def get_original_text_revamp(casenum, caseyr):
     '''
-
-    SUDDENLY WONDERING if we should just download all the original ALJ decisions and fuzzy-match their IDs to the case numbers in the appeals, rather than constructing and trying out all the different possible URL permutations. fml
-
-    Inputs:
-
-    Output:
+    this is the new function for looping over and trying all possible URLs for the original decision
     '''
-    try:
-        orig_url = f'https://www.hhs.gov/sites/default/files/alj-{casenum}.pdf'
-        #print(orig_url)
-        all_orig_text = get_pdf_txt(orig_url)
-    except:
-        print("pdf doesn't exist")
+    options = [
+        f'https://www.hhs.gov/sites/default/files/alj-{casenum}.pdf',
+        f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum}.pdf',
+        f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum.upper()}.pdf',
+        f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/cr{casenum[2:]}.pdf',
+        f'https://www.hhs.gov/sites/default/files/alj-dab{casenum[2:]}.pdf',
+        f'https://www.hhs.gov/about/agencies/dab/decisions/alj-decisions/{caseyr}/alj-{casenum}/index.html',
+        f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum.upper()}.htm',
+        f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum}.htm',
+        f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum.upper()}.html',
+        f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum}.html'
+    ]
+    fail_count = 0
+    for i, orig_url in enumerate(options):
         try:
-            orig_url = f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum}.pdf'
-            #print(orig_url)
-            all_orig_text = get_pdf_txt(orig_url) 
-        except:
-            print("pdf still doesn't exist")
-            try:
-                orig_url = f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum.upper()}.pdf'
-                #print(orig_url)
-                all_orig_text = get_pdf_txt(orig_url) 
-            except:
-                print("wow this pdf")
-                try:
-                    mod_casenum = casenum[2:]
-                    orig_url = f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/cr{mod_casenum}.pdf'
-                    #print(orig_url)
+            if urllib.request.urlopen(orig_url).code == 200:
+                if orig_url.endswith("pdf"):
                     all_orig_text = get_pdf_txt(orig_url)
-                except:
-                    print("holy shit")
-                    try:
-                        mod_casenum = casenum[2:]
-                        orig_url = f'https://www.hhs.gov/sites/default/files/alj-dab{mod_casenum}.pdf'
-                        #print(orig_url)
-                        all_orig_text = get_pdf_txt(orig_url)
-                    except:
-                        print("pdf really doesn't exist")
-                        orig_url = f'https://www.hhs.gov/about/agencies/dab/decisions/alj-decisions/{caseyr}/alj-{casenum}/index.html'
-                        #print(orig_url)
+                else:
+                    if i == 5:
                         all_orig_text, _ = initialize_get_full_text_html(orig_url)
-                        if all_orig_text.startswith("We're sorry"):
-                            print("wow now the HTML is acting up too, scraping old HTML")
-                            orig_url = f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum.upper()}.htm'
-                            # have to build in additional conditions for whether the casenum is capitalised or not, and whether it ends with htm or html. I'm tired of this
-                            # something about checking that urllib.request.urlopen(orig_url).code == 200? maybe create all possibilities and loop through to check status code, rather than doing a million try-except blocks... https://gist.github.com/fedir/5883651
-                            all_orig_text, _ = get_full_text_old_html(orig_url)
-                            if not all_orig_text:
-                                print("this file really doesn't exist period")
-    print("preview:", all_orig_text[:50])
+                    else: # really I could just have used the OLD_URL_PATTERN regex I made for this? but I'm stupid
+                        all_orig_text, _ = get_full_text_old_html(orig_url)
+                break
+        except HTTPError as err:
+            if err.code == 404:
+                print(f"{orig_url} didn't work, moving on")
+                fail_count += 1
+    if fail_count == len(options):
+        print("this file really doesn't exist period")
+        all_orig_text = ''
+    else:
+        print("preview:", all_orig_text[:75])
     print("original decision URL:", orig_url)
     return all_orig_text, orig_url
+
+
+# def get_original_text(casenum, caseyr):
+#     '''
+
+#     SUDDENLY WONDERING if we should just download all the original ALJ decisions and fuzzy-match their IDs to the case numbers in the appeals, rather than constructing and trying out all the different possible URL permutations. fml
+#     ok nah I stopped being lazy and made the loop of all possibilities above. fuck this function
+
+#     Inputs:
+
+#     Output:
+#     '''
+#     try:
+#         orig_url = f'https://www.hhs.gov/sites/default/files/alj-{casenum}.pdf'
+#         #print(orig_url)
+#         all_orig_text = get_pdf_txt(orig_url)
+#     except:
+#         print("pdf doesn't exist")
+#         try:
+#             orig_url = f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum}.pdf'
+#             #print(orig_url)
+#             all_orig_text = get_pdf_txt(orig_url) 
+#         except:
+#             print("pdf still doesn't exist")
+#             try:
+#                 orig_url = f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum.upper()}.pdf'
+#                 #print(orig_url)
+#                 all_orig_text = get_pdf_txt(orig_url) 
+#             except:
+#                 print("wow this pdf")
+#                 try:
+#                     mod_casenum = casenum[2:]
+#                     orig_url = f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/cr{mod_casenum}.pdf'
+#                     #print(orig_url)
+#                     all_orig_text = get_pdf_txt(orig_url)
+#                 except:
+#                     print("holy shit")
+#                     try:
+#                         mod_casenum = casenum[2:]
+#                         orig_url = f'https://www.hhs.gov/sites/default/files/alj-dab{mod_casenum}.pdf'
+#                         #print(orig_url)
+#                         all_orig_text = get_pdf_txt(orig_url)
+#                     except:
+#                         print("pdf really doesn't exist")
+#                         orig_url = f'https://www.hhs.gov/about/agencies/dab/decisions/alj-decisions/{caseyr}/alj-{casenum}/index.html'
+#                         #print(orig_url)
+#                         all_orig_text, _ = initialize_get_full_text_html(orig_url)
+#                         if all_orig_text.startswith("We're sorry"):
+#                             print("wow now the HTML is acting up too, scraping old HTML")
+#                             orig_url = f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum.upper()}.htm'
+#                             # have to build in additional conditions for whether the casenum is capitalised or not, and whether it ends with htm or html. I'm tired of this
+#                             # something about checking that urllib.request.urlopen(orig_url).code == 200? maybe create all possibilities and loop through to check status code, rather than doing a million try-except blocks... https://gist.github.com/fedir/5883651
+#                             all_orig_text, _ = get_full_text_old_html(orig_url)
+#                             if not all_orig_text:
+#                                 print("this file really doesn't exist period")
+#     print("preview:", all_orig_text[:50])
+#     print("original decision URL:", orig_url)
+#     return all_orig_text, orig_url
 
 
 def combining(initial_url=STARTING_PG):
@@ -386,8 +428,12 @@ def combining(initial_url=STARTING_PG):
     return test_df, problem_lst, reject_lst
 
 
+'''
+I want to note that the reason why this function can't get https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2011/dab2434.pdf is because the original decision is actually DAB CR2409 (2011), not DAB CR2409 (2010) like the appeal states. this is the actual decision file https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/2011/cr2409.pdf 
+'''
 
-    '''
+
+'''
     Webpages from test above with problems
 
 ['https://hhs.gov/about/agencies/dab/decisions/board-decisions/2020/board-dab-2987/index.html',
@@ -410,4 +456,4 @@ def combining(initial_url=STARTING_PG):
  'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2000/dab1758.html',
  'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2000/dab1757.html',
  'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2000/dab1756.html']
-    '''
+'''
