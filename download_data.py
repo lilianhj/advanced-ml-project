@@ -41,22 +41,37 @@ def get_orig_case_info(txt):
     Returns: the case number and case year of the ORIGINAL ALJ decision.
              Use this to construct the URL for the original ALJ decision.
     '''
-    case_match = re.search(r"[A-Z][A-Z](\s)?\d\d\d\d \(\d\d\d\d\)", txt)
-    if case_match:
-        caseyr = re.search(r"(?<=\()\d\d\d\d", case_match.group()).group()
+    case_match = re.search(r"[A-Z][A-Z](\s)?\d\w\d(\d)?(\s)?\((\d\d\d\d|\w+ \d(\d)?, \d\d\d\d)\)", txt)
     i = 0
+    if case_match:
+        caseyr = re.search(r"(?<=\()(.*)?\d\d\d\d", case_match.group()).group()
+        if ',' in caseyr:
+            caseyr = caseyr[-4:]
+            i = 3
     if not case_match:
         case_match = re.search(r"DAB [A-Z][A-Z]\d\d\d(\d)?", txt)
-        case_yr_match = re.search(r"the \w+ \d(\d)?, \d\d\d\d", txt)
-        caseyr = case_yr_match.group().split(', ')[1]
+        case_yr_match = re.search(r"(the|a|an) \w+ \d(\d)?, \d\d\d\d", txt)
+        if case_yr_match:
+            caseyr = case_yr_match.group().split(', ')[1]
         i = 1
+    if not case_match:
+        case_match = re.search(r"DAB No. CR\d\d\d(\d)?", txt)
+        caseyr = re.search(r"(?<=\()\d\d\d\d", case_match.group()).group()
+        i = 2
     print("case matched:", case_match.group())
-    if case_match.group().count(' ') == 1:
-        orig = case_match.group().split()
-        casenum = orig[i].lower()
+    if case_match.group().count(' ') == 0:
+        orig = case_match.group().split('(')
+        casenum = orig[0].lower()
     else:
-        orig = case_match.group().split()
-        casenum = orig[0].lower() + orig[1]
+        if case_match.group().count(' ') == 1 or (i == 2):
+            orig = case_match.group().split()
+            casenum = orig[i].lower()
+        else:
+            orig = case_match.group().split()
+            casenum = orig[0].lower() + orig[1]
+            if i == 3:
+                orig = case_match.group().split()
+                casenum = orig[0].lower()
     print(f"casenum {casenum} caseyear {caseyr}")
     return casenum, caseyr
 
@@ -246,8 +261,7 @@ def get_pdf_info(appeal_url, reject_lst):
     - the full text of the appeal decision, as a string
     - the full text of the original ALJ decision, as a string
     '''
-    # regex in next line to have text start at same spot as html text
-    all_appeal_text = re.search(r'DECISION.*', get_pdf_txt(appeal_url)).group()
+    all_appeal_text = get_pdf_txt(appeal_url)
     alj_check = re.search("ALJ", all_appeal_text)
     if not alj_check:
         print("not an ALJ thing")
@@ -255,11 +269,15 @@ def get_pdf_info(appeal_url, reject_lst):
         return
     #strict_dab_check = re.search("^(?!DAB No.)DAB.*?\d\d\d\d", all_appeal_text)
     strict_dab_check = [x for x in re.findall("DAB.*?\d\)", all_appeal_text) if "No." not in x]
+    if re.search("DAB No. CR\d\d\d(\d)?", all_appeal_text):
+        strict_dab_check.append(re.search("DAB No. CR\d\d\d(\d)?", all_appeal_text))
     dab_no_check = re.search("DAB No.*?\d\)", all_appeal_text)
-    if dab_no_check and not strict_dab_check:
+    if dab_no_check and (not strict_dab_check):
         print("no original decision")
         reject_lst.append(appeal_url)
         return
+    # regex in next line to have text start at same spot as html text
+    all_appeal_text = re.search(r'DECISION.*', all_appeal_text).group()
     casenum, caseyr = get_orig_case_info(all_appeal_text)
     conclusion = re.search("(?<=Conclusion ).*?\.", all_appeal_text)
     if conclusion:
@@ -284,7 +302,8 @@ def get_original_text_revamp(casenum, caseyr):
         f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum.upper()}.htm',
         f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum}.htm',
         f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum.upper()}.html',
-        f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum}.html'
+        f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum}.html',
+        f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum[:2]}d{casenum[2:]}.pdf'
     ]
     fail_count = 0
     for i, orig_url in enumerate(options):
@@ -388,7 +407,7 @@ def combining(initial_url=STARTING_PG):
     reject_lst = []
     for year in full_urls.keys():
         # indexing list below for testing
-        test_cases = full_urls[year][:3]
+        test_cases = full_urls[year][:10]
         for case in test_cases:
             dab_url = case[0]
             dab_id = re.search(r'(?<=[dab|dab-])\d*\d', dab_url.lower()).group()
@@ -429,31 +448,13 @@ def combining(initial_url=STARTING_PG):
 
 
 '''
-I want to note that the reason why this function can't get https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2011/dab2434.pdf is because the original decision is actually DAB CR2409 (2011), not DAB CR2409 (2010) like the appeal states. this is the actual decision file https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/2011/cr2409.pdf 
-'''
+I want to note that the reason why this function can't get https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2011/dab2434.pdf is because the original decision is actually DAB CR2409 (2011), not DAB CR2409 (2010) like the appeal states. this is just bad data entry on their part and idk how we can correct for it except by hand. this is the actual decision file https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/2011/cr2409.pdf 
 
-
-'''
-    Webpages from test above with problems
-
-['https://hhs.gov/about/agencies/dab/decisions/board-decisions/2020/board-dab-2987/index.html',
- 'https://hhs.gov/about/agencies/dab/decisions/board-decisions/2019/board-dab-2982/index.html',
- 'https://hhs.gov/about/agencies/dab/decisions/board-decisions/2019/board-dab-2981/index.html',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2005/dab2007.htm',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2005/dab2006.htm',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2004/dab1956.htm',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2004/dab1955.htm',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2004/dab1954.htm',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2003/dab1903.html',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2003/dab1902.html',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2003/dab1901.html',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2003/dab1861.html',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2002/dab1860.html',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2002/dab1859.html',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2001/dab1805.html',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2001/dab1804.html',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2001/dab1803.html',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2000/dab1758.html',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2000/dab1757.html',
- 'https://hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2000/dab1756.html']
+other problems:
+https://www.hhs.gov/sites/default/files/board-dab2755.pdf ("DAB No." format is generally to be avoided but necessary here, fixed by allowing specifically "DAB No. CR")
+https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2015/dab2667.pdf (some date formatting bs, fixed horribly in get_orig_case_info)
+https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/2013/crd2838.pdf apparently there's yet another possible URL format! i hate it! fixed in the get_original_text_revamp function
+https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2010/dab2355rev.pdf this is just bad OCR rendering a number as a letter, fixed in get_orig_case_info but this regex is getting worse and worse, we really need to make get_orig_case_info more robust to exceptions
+https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2006/dab2054.pdf adding an optional space between case number and date because OCR is crap again
+https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2002/dab1852.pdf apparently original case number can be 3 digits rather than 4, fixing regex in get_orig_case_info
 '''
