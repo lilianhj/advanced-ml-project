@@ -4,9 +4,9 @@ Some test functions for checking downloaded data
 
 import pandas as pd
 
-CHECK_AMTS = {'alj_id': 6,
+CHECK_AMTS = {'alj_id': 5,
              'dab_id': 4,
-             'decision': 50,
+             'decision': 25,
              'dab_text': 1000,
              'alj_text': 1000,
              'alj_url': 50,

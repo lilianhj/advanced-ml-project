@@ -201,6 +201,7 @@ def initialize_get_full_text_html(url):
     all_text = clean_text(soup.find("div", {"class": "field-name-body"}).getText())
     return all_text, soup
 
+
 def get_html_info_old_format(appeal_url):
     '''
     Input:
@@ -288,6 +289,7 @@ def get_pdf_info(appeal_url, reject_lst):
     all_orig_text, orig_url = get_original_text_revamp(casenum, caseyr)
     return outcome, all_appeal_text, all_orig_text, casenum, orig_url, appeal_url
 
+
 def get_original_text_revamp(casenum, caseyr):
     '''
     this is the new function for looping over and trying all possible URLs for the original decision
@@ -328,6 +330,105 @@ def get_original_text_revamp(casenum, caseyr):
         print("preview:", all_orig_text[:75])
     print("original decision URL:", orig_url)
     return all_orig_text, orig_url
+
+
+def get_dab_id(case_info_str):
+    dab_str = re.search(r'(?<=[dab|dab-|dab ])\d*\d', case_info_str.lower())
+    if dab_str:
+        dab_id = dab_str.group()
+    if not dab_str or len(dab_id) != 4:
+        dab_str = re.search(r'(?<=a-)\d.*(?=;)', case_info_str.lower())
+        if dab_str:
+            dab_id = ''.join(re.findall(r'\d+', dab_str.group()))
+        else:
+            dab_id = None
+    return dab_id
+
+
+def combine_for_ind(case, problem_lst, reject_lst):
+    '''
+    '''
+    row = []
+    dab_url, quick_case_info = case
+    dab_id = get_dab_id(quick_case_info)
+    if not dab_id:
+        reject_lst.append(dab_url)
+        return
+    elif dab_url[-4:] in ['html', '.htm']:
+        if re.search(OLD_URL_PATTERN, dab_url):
+            try:
+                outcome, dab_text, alj_text, alj_id, alj_url, \
+                dab_url = get_html_info_old_format(dab_url)
+                row = [dab_id, alj_id, dab_text, alj_text, dab_url, alj_url, outcome]
+                print("adding old-style HTML appeal to df")
+            except:
+                pass
+        else:
+            try:
+                outcome, dab_text, alj_text, alj_id, alj_url, \
+                dab_url = get_html_info(dab_url, reject_lst, problem_lst)
+                if alj_text.startswith("We're sorry"):
+                    print("this is a problem, adding to list")
+                    problem_lst.append(dab_url)
+                row = [dab_id, alj_id, dab_text, alj_text, dab_url, alj_url, outcome]
+                print("adding HTML appeal to df")
+            except:
+                pass
+    else:
+        pdf_outcome = get_pdf_info(dab_url, reject_lst)
+        if pdf_outcome:
+            outcome, dab_text, alj_text, alj_id, alj_url, \
+            dab_url = pdf_outcome
+            if alj_text.startswith("We're sorry"):
+                print("this is a problem, adding to list")
+                problem_lst.append(dab_url)
+            row = [dab_id, alj_id, dab_text, alj_text, dab_url, alj_url, outcome]
+            print("adding pdf appeal to df")
+    return row
+
+
+
+def combining(initial_url=STARTING_PG):
+    '''
+
+    Inputs:
+
+    Outputs:
+        a test df as a proxy for what would be inputted into the db
+
+    '''
+    full_urls = get_urls_all_years(initial_url)
+
+    #initial df -- just for testing then remove
+    test_df = pd.DataFrame(columns=['dab_id', 'alj_id', 'dab_text', 'alj_text',
+                                    'dab_url', 'alj_url', 'decision'])
+    problem_lst = []
+    reject_lst = []
+    for year in full_urls.keys():
+        #indexing list below for testing
+        test_cases = full_urls[year][:5]
+        for case in test_cases:
+            print("appeal id:", case)
+            row = combine_for_ind(case, problem_lst, reject_lst)
+            if row:
+                test_df.loc[len(test_df)] = row
+            else:
+                print('num probs', len(problem_lst))
+                print('num reject', len(reject_lst))
+    return test_df, problem_lst, reject_lst
+
+
+'''
+I want to note that the reason why this function can't get https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2011/dab2434.pdf is because the original decision is actually DAB CR2409 (2011), not DAB CR2409 (2010) like the appeal states. this is just bad data entry on their part and idk how we can correct for it except by hand. this is the actual decision file https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/2011/cr2409.pdf 
+
+other problems:
+https://www.hhs.gov/sites/default/files/board-dab2755.pdf ("DAB No." format is generally to be avoided but necessary here, fixed by allowing specifically "DAB No. CR")
+https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2015/dab2667.pdf (some date formatting bs, fixed horribly in get_orig_case_info)
+https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/2013/crd2838.pdf apparently there's yet another possible URL format! i hate it! fixed in the get_original_text_revamp function
+https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2010/dab2355rev.pdf this is just bad OCR rendering a number as a letter, fixed in get_orig_case_info but this regex is getting worse and worse, we really need to make get_orig_case_info more robust to exceptions
+https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2006/dab2054.pdf adding an optional space between case number and date because OCR is crap again
+https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2002/dab1852.pdf apparently original case number can be 3 digits rather than 4, fixing regex in get_orig_case_info
+'''
 
 
 # def get_original_text(casenum, caseyr):
@@ -387,74 +488,3 @@ def get_original_text_revamp(casenum, caseyr):
 #     print("original decision URL:", orig_url)
 #     return all_orig_text, orig_url
 
-
-def combining(initial_url=STARTING_PG):
-    '''
-
-    Inputs:
-
-    Outputs:
-        a test df as a proxy for what would be inputted into the db
-
-
-    '''
-    full_urls = get_urls_all_years(initial_url)
-
-    #initial df -- just for testing then remove
-    test_df = pd.DataFrame(columns=['dab_id', 'alj_id', 'dab_text', 'alj_text',
-                                    'dab_url', 'alj_url', 'decision'])
-    problem_lst = []
-    reject_lst = []
-    for year in full_urls.keys():
-        # indexing list below for testing
-        test_cases = full_urls[year][:10]
-        for case in test_cases:
-            dab_url = case[0]
-            dab_id = re.search(r'(?<=[dab|dab-])\d*\d', dab_url.lower()).group()
-            print("appeal id:", dab_url)
-            if dab_url[-4:] in ['html', '.htm']:
-                if re.search(OLD_URL_PATTERN, dab_url):
-                    try:
-                        outcome, dab_text, alj_text, alj_id, alj_url, \
-                        dab_url = get_html_info_old_format(dab_url)
-                        row = [dab_id, alj_id, dab_text, alj_text, dab_url, alj_url, outcome]
-                        print("adding old-style HTML appeal to df")
-                        test_df.loc[len(test_df)] = row
-                    except:
-                        pass
-                else:
-                    try:
-                        outcome, dab_text, alj_text, alj_id, alj_url, \
-                        dab_url = get_html_info(dab_url, reject_lst, problem_lst)
-                        if alj_text.startswith("We're sorry"):
-                            print("this is a problem, adding to list")
-                            problem_lst.append(dab_url)
-                        row = [dab_id, alj_id, dab_text, alj_text, dab_url, alj_url, outcome]
-                        print("adding HTML appeal to df")
-                        test_df.loc[len(test_df)] = row
-                    except:
-                        pass
-            else:
-                if get_pdf_info(dab_url, reject_lst): #this is what causes that weird double loop, because checking that it's not a None being returned
-                    outcome, dab_text, alj_text, alj_id, alj_url, \
-                    dab_url = get_pdf_info(dab_url, reject_lst)
-                    if alj_text.startswith("We're sorry"):
-                        print("this is a problem, adding to list")
-                        problem_lst.append(dab_url)
-                    row = [dab_id, alj_id, dab_text, alj_text, dab_url, alj_url, outcome]
-                    print("adding pdf appeal to df")
-                    test_df.loc[len(test_df)] = row
-    return test_df, problem_lst, reject_lst
-
-
-'''
-I want to note that the reason why this function can't get https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2011/dab2434.pdf is because the original decision is actually DAB CR2409 (2011), not DAB CR2409 (2010) like the appeal states. this is just bad data entry on their part and idk how we can correct for it except by hand. this is the actual decision file https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/2011/cr2409.pdf 
-
-other problems:
-https://www.hhs.gov/sites/default/files/board-dab2755.pdf ("DAB No." format is generally to be avoided but necessary here, fixed by allowing specifically "DAB No. CR")
-https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2015/dab2667.pdf (some date formatting bs, fixed horribly in get_orig_case_info)
-https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/2013/crd2838.pdf apparently there's yet another possible URL format! i hate it! fixed in the get_original_text_revamp function
-https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2010/dab2355rev.pdf this is just bad OCR rendering a number as a letter, fixed in get_orig_case_info but this regex is getting worse and worse, we really need to make get_orig_case_info more robust to exceptions
-https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2006/dab2054.pdf adding an optional space between case number and date because OCR is crap again
-https://www.hhs.gov/sites/default/files/static/dab/decisions/board-decisions/2002/dab1852.pdf apparently original case number can be 3 digits rather than 4, fixing regex in get_orig_case_info
-'''
