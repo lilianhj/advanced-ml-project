@@ -31,4 +31,4 @@ def check_all(df, known_col='dab_url', check_dict=CHECK_AMTS):
         tmp = pd.DataFrame(bad)
         tmp[col] = f'bad_{col}'
         issue_df = pd.merge(issue_df, tmp, how='outer') 
-    return issue_df
+    return issue_df.dropna(thresh=2)
