@@ -18,13 +18,12 @@ go to the URL of original decision. try both HTML and pdf, if the HTML URL doesn
 pull the full text of the original decision (using a different function depending if it's HTML or pdf)
 4. i'm thinking we write this straight into the database using psycopg2? obviously we can open/close cursors, etc, but this might be better than having intermediate csvs?
 '''
-import requests
-from bs4 import BeautifulSoup
 import re
-import urllib.request
-from urllib.error import HTTPError
 import PyPDF2
 import io
+import requests
+from bs4 import BeautifulSoup
+from urllib.error import HTTPError
 # for testing
 import pandas as pd
 
@@ -34,13 +33,19 @@ STARTING_PG = 'https://www.hhs.gov/about/agencies/dab/decisions/' + \
 OLD_URL_PATTERN = r'files/static/dab/decisions/.*/\d\d\d\d.*htm'
 
 
-def get_orig_case_info(txt):
+def get_orig_case_info(txt, old=False):
     '''
     Input: the text of the APPEAL decision, as a string.
 
     Returns: the case number and case year of the ORIGINAL ALJ decision.
              Use this to construct the URL for the original ALJ decision.
     '''
+    if old:
+        casenum = re.search('CR\d\d\d\d', old).group()  
+        caseyr = re.search('(?<=, )\d\d\d\d', old).group()
+        return casenum, caseyr
+
+
     case_match = re.search(r"[A-Z][A-Z](\s)?\d\w\d(\d)?(\s)?\((\d\d\d\d|\w+ \d(\d)?, \d\d\d\d)\)", txt)
     i = 0
     if case_match:
@@ -216,7 +221,7 @@ def get_html_info_old_format(appeal_url):
     if not alj_check:
         print("not an ALJ thing")
     try:
-        casenum, caseyr = get_orig_case_info(all_appeal_text)
+        casenum, caseyr = get_orig_case_info(all_appeal_text, soup.text)
         # need to fine-tune to get the last occurrence of Conclusion in the text. negative lookahead? https://frightanic.com/software-development/regex-match-last-occurrence/
         conclusion = re.search("(?<=\.Conclusion).*?\.", all_appeal_text)
         if conclusion:
@@ -290,10 +295,7 @@ def get_pdf_info(appeal_url, reject_lst):
     return outcome, all_appeal_text, all_orig_text, casenum, orig_url, appeal_url
 
 
-def get_original_text_revamp(casenum, caseyr):
-    '''
-    this is the new function for looping over and trying all possible URLs for the original decision
-    '''
+def get_alj_url(casenum, caseyr):
     options = [
         f'https://www.hhs.gov/sites/default/files/alj-{casenum}.pdf',
         f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum}.pdf',
@@ -307,29 +309,41 @@ def get_original_text_revamp(casenum, caseyr):
         f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum}.html',
         f'https://www.hhs.gov/sites/default/files/static/dab/decisions/alj-decisions/{caseyr}/{casenum[:2]}d{casenum[2:]}.pdf'
     ]
+    for potential_url in options:
+        request = requests.get(potential_url)
+        if request.status_code == 200:
+            return potential_url
+        else:
+            int_case_yr = int(caseyr) - 1
+            case_yr = str(int_case_yr)
+            for potential_url in options:
+                request = requests.get(potential_url)
+                if request.status_code == 200:
+                    return potential_url
+    return
+
+
+def get_original_text_revamp(casenum, caseyr):
+    '''
+    this is the new function for looping over and trying all possible URLs for the original decision
+    '''
     fail_count = 0
-    for i, orig_url in enumerate(options):
-        try:
-            if urllib.request.urlopen(orig_url).code == 200:
-                if orig_url.endswith("pdf"):
-                    all_orig_text = get_pdf_txt(orig_url)
-                else:
-                    if i == 5:
-                        all_orig_text, _ = initialize_get_full_text_html(orig_url)
-                    else: # really I could just have used the OLD_URL_PATTERN regex I made for this? but I'm stupid
-                        all_orig_text, _ = get_full_text_old_html(orig_url)
-                break
-        except HTTPError as err:
-            if err.code == 404:
-                print(f"{orig_url} didn't work, moving on")
-                fail_count += 1
-    if fail_count == len(options):
-        print("this file really doesn't exist period")
-        all_orig_text = ''
+    potential_alj_url = get_alj_url(casenum, caseyr)
+    if potential_alj_url:
+        orig_url = potential_alj_url
+        if orig_url.endswith("pdf"):
+            all_orig_text = get_pdf_txt(orig_url)
+        else:
+            if re.search(OLD_URL_PATTERN, orig_url):
+                all_orig_text, _ = get_full_text_old_html(orig_url)
+            else:
+                all_orig_text, _ = initialize_get_full_text_html(orig_url)
+            print("preview:", all_orig_text[:75])
+        return all_orig_text, orig_url
     else:
-        print("preview:", all_orig_text[:75])
-    print("original decision URL:", orig_url)
-    return all_orig_text, orig_url
+        fail_count +=1
+        print(fail_count)
+        return '', ''
 
 
 def get_dab_id(case_info_str):
@@ -387,7 +401,6 @@ def combine_for_ind(case, problem_lst, reject_lst):
     return row
 
 
-
 def combining(initial_url=STARTING_PG):
     '''
 
@@ -406,7 +419,7 @@ def combining(initial_url=STARTING_PG):
     reject_lst = []
     for year in full_urls.keys():
         #indexing list below for testing
-        test_cases = full_urls[year][:5]
+        test_cases = full_urls[year][:10]
         for case in test_cases:
             print("appeal id:", case)
             row = combine_for_ind(case, problem_lst, reject_lst)
