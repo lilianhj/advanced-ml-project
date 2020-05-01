@@ -26,12 +26,13 @@ from bs4 import BeautifulSoup
 from urllib.error import HTTPError
 # for testing
 import pandas as pd
+import logging
 
 STARTING_PG = 'https://www.hhs.gov/about/agencies/dab/decisions/' + \
               'board-decisions/board-decisions-by-year/index.html'
 
 OLD_URL_PATTERN = r'files/static/dab/decisions/.*/\d\d\d\d.*htm'
-
+logging.basicConfig(filename='scraper.log', level=logging.DEBUG)
 
 def get_orig_case_info(txt, old=False):
     '''
@@ -146,14 +147,31 @@ def get_urls_one_year(url):
 
 def convert_decision_binary(decision_txt):
     '''
-    THIS NEEDS TO BE COMPLETED
-    Converts the text re the case decision to binary
-      0 if appelate court affirms
-      1 if overturns original ruling
+    Converts the decision text from an appeals case to a binary outcome variable.
+    - 0 if appelate court affirms lower court's ruling
+    - 1 if appelate court overturns overturns lower court's ruling
+
+    Inputs:
+    decision_txt (str): the sentence containg the conclusion of the appelate court's
+        findings
+    
+    Returns: int
     '''
     outcome = None
     overturn_lst = ['vacate']
     affirm_lst = ['affirm', 'uphold', 'sustain']
+    overturned = re.search(r'(vacate)', decision_txt)
+    if overturned:
+        outcome = 1
+    else:
+         # nesting this to reduce # of re searches needed
+        affirmed = re.search(r'(affirm)|(uphold)|(sustain)', decision_txt)
+        if affirmed:
+            outcome = 0
+        else:
+            logging.info("Couldn't find outcome in the following decision text:\n",
+                         decision_txt)
+
     return outcome
 
 
