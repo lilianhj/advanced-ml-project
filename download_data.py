@@ -223,14 +223,16 @@ def get_html_info_old_format(appeal_url):
     try:
         casenum, caseyr = get_orig_case_info(all_appeal_text, soup.text)
         # need to fine-tune to get the last occurrence of Conclusion in the text. negative lookahead? https://frightanic.com/software-development/regex-match-last-occurrence/
-        conclusion = re.search("(?<=\.Conclusion).*?\.", all_appeal_text)
+        # think this is fixed w/ the switch to findall
+        conclusion = re.findall("(?<=\.Conclusion).*?\.", all_appeal_text)
         if conclusion:
-            outcome = conclusion.group()
+            outcome = conclusion[-1]
         else:
             outcome = 'by hand'
         all_orig_text, orig_url = get_original_text_revamp(casenum, caseyr)
         return outcome, all_appeal_text, all_orig_text, casenum, orig_url, appeal_url
-    except:
+    except Exception as e:
+        print(e)
         print("man idk it's probably not an ALJ thing")
         pass
 
