@@ -140,3 +140,4 @@ cython_debug/
 # Custom
 *.csv
 .DS_Store
+.code-workspace.code-workspace
