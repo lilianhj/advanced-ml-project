@@ -141,3 +141,4 @@ cython_debug/
 *.csv
 .DS_Store
 *.code-workspace
+secrets.ini
