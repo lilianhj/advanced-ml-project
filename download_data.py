@@ -39,7 +39,7 @@ ALJ_START_PAGE = 'https://www.hhs.gov/about/agencies/dab/decisions/alj-decisions
 DAB_START_PAGE = 'https://www.hhs.gov/about/agencies/dab/decisions/board-decisions/' +\
                  'board-decisions-by-year/index.html'
 
-OLD_URL_PATTERN = r'files/static/dab/decisions/.*/\d\d\d\d.*htm'
+OLD_URL_PATTERN = r'files/static/dab/decisions/'
 
 PDF = 0
 OLD_HTML = 1
