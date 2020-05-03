@@ -22,17 +22,303 @@ import re
 import PyPDF2
 import io
 import requests
+from urllib.parse import urlparse, urljoin, urlunparse
 from bs4 import BeautifulSoup
 from urllib.error import HTTPError
 # for testing
 import pandas as pd
 import logging
+from collections import namedtuple
 
 STARTING_PG = 'https://www.hhs.gov/about/agencies/dab/decisions/' + \
               'board-decisions/board-decisions-by-year/index.html'
 
 OLD_URL_PATTERN = r'files/static/dab/decisions/.*/\d\d\d\d.*htm'
+
+PDF = 0
+OLD_HTML = 1
+NEW_HTML = 2
+
 logging.basicConfig(filename='scraper.log', level=logging.DEBUG)
+
+field_names = ['dab_id', 'alj_id', 'dab_text', 'alj_text', 'dab_url', 'alj_url', 'decision']
+AppealRecord = namedtuple("AppealRecord", field_names)
+
+class Appeal:
+    '''
+    self.outcome_text
+    self.outcome
+    '''
+    
+    def __init__(self, dab_url, dab_case_info):
+        '''
+        Generate a new Appeal object. Likely use case is to only call with dab_id.
+
+        TODO: Case-Year dictionary
+
+        Inputs:
+        I'll do this later.
+        '''
+        self.__init_all_vars()
+        self.dab_url = urlparse(dab_url)
+
+        self.__extract_dab_id(dab_case_info)        
+        if not self.dab_id:
+            logging.warning(f'The following appears not to be a DAB case: {dab_case_info} ' +
+                        f'\n{dab_url}')
+            return None 
+        
+        self.dab_text = scrape_decision_text(self.dab_url)
+        if not self.dab_text:
+            logging.warning("Couldn't extract DAB text for the following case: DAB ID " +
+                        f"{self.dab_id}, DAB URL: {self.dab_url}")
+            return None 
+        
+        self.__extract_dab_outcome()
+        if not self.dab_outcome:
+                logging.warning("Couldn't extract outcome for the following case:" +
+                                f"DAB ID: {self.dab_id}")
+        else: 
+            self.__convert_dab_outcome()
+            if not self.dab_outcome_binary:
+                logging.warning("Couldn't convert outcome to binary for the following case: " +
+                            f"DAB ID: {self.dab_id}\nOutcome text:\n{self.dab_outcome}")
+
+        self.__extract_alj_id()
+        if not self.alj_id:
+            logging.warning("Couldn't find ALJ ID and year for the following case: DAB ID: " +
+                        f"{self.dab_id}")
+            return None
+
+        self.__find_alj_url()
+        if not self.alj_url:
+            logging.warning("Couldn't find ALJ URL for the following case: DAB ID: " +
+                        f"{self.dab_id}, ALJ ID/Year: {self.alj_id}/{self.alj_year}")
+            return None
+
+        self.alj_text = scrape_decision_text(self.alj_url)
+        if not self.alj_text:
+            logging.warning("Couldn't scrape ALJ text for the following case: DAB ID: " +
+                        f"{self.dab_id}, ALJ ID/Year: {self.alj_id}/{self.alj_year}",
+                        f"ALJ URL: {self.alj_url}")
+            return None
+
+    def __init_all_vars(self):
+        '''
+        '''
+        self.dab_url = None
+        self.dab_id = None
+        self.dab_text = None
+        self.dab_outcome = None
+        self.dab_outcome_binary = None
+        self.alj_id = None
+        self.alj_year = None
+        self.alj_url = None
+        self.alj_text = None
+
+    def __extract_dab_id(self, case_info_str):
+        '''
+        Get DAB case id.
+        '''
+        dab_str = re.search(r'(?<=[dab|dab-|dab ])\d*\d', case_info_str.lower())
+        if dab_str:
+            dab_id = dab_str.group()
+        
+        if not dab_str or len(dab_id) != 4:
+            dab_str = re.search(r'(?<=a-)\d.*(?=;)', case_info_str.lower())
+        
+        if dab_str:
+            self.dab_id = ''.join(re.findall(r'\d+', dab_str.group()))
+        else:
+            self.dab_id = None
+
+    def __extract_dab_outcome(self):
+        '''
+        '''
+        decision_format = get_decision_format(self.dab_url)
+        if decision_format == PDF:
+            conclusion = re.search("(?<=Conclusion ).*?\.", self.dab_text)
+            if conclusion:
+                self.dab_outcome = conclusion.group()
+        elif decision_format == OLD_HTML:
+            conclusion = re.findall("(?<=\.Conclusion).*?\.", self.dab_text)
+            if conclusion:
+                self.dab_outcome = conclusion[-1]
+        else:
+            soup = make_soup(urlunparse(self.dab_url)) # I don't love hitting the website again here but...
+            conclusion = soup.find("div", {"class": "legal-decision-judge"})\
+                             .find_previous()\
+                             .getText()
+            if conclusion:
+                self.dab_outcome = conclusion
+
+    def __convert_dab_outcome(self):
+        '''
+        Converts the decision text from an appeals case to a binary outcome variable.
+        - 0 if appelate court affirms lower court's ruling
+        - 1 if appelate court overturns overturns lower court's ruling
+
+        Inputs:
+        decision_txt (str): the sentence containg the conclusion of the appelate court's
+            findings
+        
+        Returns: int
+        '''
+
+        overturned = re.search(r'(vacate)', self.dab_outcome)
+        if overturned:
+            self.dab_outcome_binary = 1
+        affirmed = re.search(r'(affirm)|(uphold)|(sustain)', self.dab_outcome)
+        if affirmed:
+            self.dab_outcome_binary = 0
+
+    def __extract_alj_id(self):
+        '''
+        Do this later; mainly just porting get_orig_case_info
+        '''
+        pattern = r'CR\D{0,2}(\d\W{0,1}){1,4}'
+        match = re.search(pattern, self.dab_text)
+        print(match)
+        if match:
+            print(f'Case ID: {match.group(0)}')
+            whitespace = re.compile('[^A-Za-z0-9]')
+            self.alj_id = whitespace.sub('', match.group(0))
+            # self.alj_year = whitespace.sub('', match.group('year'))
+        else:
+            print(self.dab_url)
+
+    def __find_alj_url(self):
+        base_url = 'https://www.hhs.gov/'
+        potential_paths = [
+            f'/sites/default/files/alj-{self.alj_id}.pdf',
+            f'/sites/default/files/static/dab/decisions/alj-decisions/{self.alj_year}/{self.alj_id}.pdf',
+            f'/sites/default/files/static/dab/decisions/alj-decisions/{self.alj_year}/{self.alj_id.upper()}.pdf',
+            f'/sites/default/files/static/dab/decisions/alj-decisions/{self.alj_year}/cr{self.alj_id[2:]}.pdf',
+            f'/sites/default/files/alj-dab{self.alj_id[2:]}.pdf',
+            f'/about/agencies/dab/decisions/alj-decisions/{self.alj_year}/alj-{self.alj_id}/index.html',
+            f'/sites/default/files/static/dab/decisions/alj-decisions/{self.alj_year}/{self.alj_id.upper()}.htm',
+            f'/sites/default/files/static/dab/decisions/alj-decisions/{self.alj_year}/{self.alj_id}.htm',
+            f'/sites/default/files/static/dab/decisions/alj-decisions/{self.alj_year}/{self.alj_id.upper()}.html',
+            f'/sites/default/files/static/dab/decisions/alj-decisions/{self.alj_year}/{self.alj_id}.html',
+            f'/sites/default/files/static/dab/decisions/alj-decisions/{self.alj_year}/{self.alj_id[:2]}d{self.alj_id[2:]}.pdf'
+        ]
+        for path in potential_paths:
+            url = urljoin(base_url, path)
+            request = requests.get(url)
+            if request.status_code == 200:
+                self.alj_url = urlparse(url)
+
+    def to_tuple(self):
+        '''
+        '''
+        return AppealRecord(self.dab_id, self.alj_id, self.dab_text, self.alj_text,
+                            urlunparse(self.dab_url), urlunparse(self.alj_url),
+                            self.dab_outcome_binary)
+        
+    def __repr__(self):
+        return f'DAB ID: {self.dab_id}, DAB URL: {urlunparse(self.dab_url)}\n' +\
+               f'DAB text: {self.dab_text[:100]}...\n' +\
+               f'Binary outcome: {"Overturned" if self.dab_outcome_binary else "Upheld"}' +\
+               f'\nOutcome text: {self.dab_outcome}\n' +\
+               f'ALJ ID: {self.alj_id} ({self.alj_year}),' +\
+               f'ALJ URL: {urlunparse(self.alj_url)}\n' +\
+               f'ALJ text: {self.alj_text[:100]}...' 
+
+
+def get_decision_format(url):
+    '''
+    Bleh. I am tired.
+    '''
+    if url.path.endswith('.pdf'):
+        return PDF
+    elif OLD_URL_PATTERN in url.path:
+        return OLD_HTML
+    else:
+        return NEW_HTML
+
+def clean_text(raw_text):
+    '''
+    Takes docstring and cleans out the \n chars
+    
+    Inputs: docstring representing pdf conversion
+
+    Output: a cleaner docstring representation of same pdf
+    '''
+    return raw_text.replace("\n", ' ')
+
+def make_soup(url):
+    '''
+    Input: any URL.
+
+    Returns: delicious soup.
+    '''
+    page = requests.get(url)
+    soup = BeautifulSoup(page.content, 'html.parser')
+    return soup
+
+def scrape_decision_text(url):
+    '''
+    Get DAB case text
+    '''
+    url_type = get_decision_format(url)
+    url = urlunparse(url)
+    if url_type == PDF:
+        response = requests.get(url)
+        pdfReader = PyPDF2.PdfFileReader(io.BytesIO(response.content))
+        raw_text = ''
+        for page in pdfReader.pages:
+            pg_text = page.extractText()
+            raw_text += pg_text
+    elif url_type == OLD_HTML:
+        soup = make_soup(url)
+        tables = soup.find_all("td", {"colspan": "2"})[1:]
+        raw_text = ''
+        for td in tables:
+            paragraphs = td.find_all('p')
+            for paragraph in paragraphs:
+                raw_text += paragraphs.getText()
+    else:
+        soup = make_soup(url)
+        raw_text = soup.find("div", {"class": "field-name-body"}).getText()
+    
+    return clean_text(raw_text)
+
+def go(initial_url=STARTING_PG):
+    '''
+
+    Inputs:
+
+    Outputs:
+        a test df as a proxy for what would be inputted into the db
+
+    '''
+    full_urls = get_urls_all_years(initial_url)
+
+    '''
+    #initial df -- just for testing then remove
+    test_df = pd.DataFrame(columns=['dab_id', 'alj_id', 'dab_text', 'alj_text',
+                                    'dab_url', 'alj_url', 'decision'])
+    problem_lst = []
+    reject_lst = []
+    '''
+    appeals = []
+    for year in full_urls.keys():
+        test_cases = full_urls[year][:10]
+        for case in test_cases:
+            appeals.append(Appeal(*case))
+    return appeals
+
+
+############################################################################################
+############################################################################################
+############################################################################################
+############################################################################################
+############################################################################################
+############################################################################################
+############################################################################################
+############################################################################################
+############################################################################################
+############################################################################################
 
 def get_orig_case_info(txt, old=False):
     '''
@@ -46,8 +332,7 @@ def get_orig_case_info(txt, old=False):
         caseyr = re.search('(?<=, )\d\d\d\d', old).group()
         return casenum, caseyr
 
-
-    case_match = re.search(r"[A-Z][A-Z](\s)?\d\w\d(\d)?(\s)?\((\d\d\d\d|\w+ \d(\d)?, \d\d\d\d)\)", txt)
+    case_match = re.search(r"[A-Z][A-Z](\s)?\d\w\d(\d)?(\s)?\((\d\d\d\d|\w+ \d(\d)?, \d\d\d\d)\)", self.alj_text)
     i = 0
     if case_match:
         caseyr = re.search(r"(?<=\()(.*)?\d\d\d\d", case_match.group()).group()
@@ -96,29 +381,6 @@ def get_pdf_txt(pdf_url):
         docstring += txt
     return clean_text(docstring)
 
-
-def clean_text(pdf_docstring):
-    '''
-    Takes docstring and cleans out the \n chars
-    
-    Inputs: docstring representing pdf conversion
-
-    Output: a cleaner docstring representation of same pdf
-    '''
-    return ' '.join(pdf_docstring.replace("\n", '').split())
-
-
-def make_soup(url):
-    '''
-    Input: any URL.
-
-    Returns: delicious soup.
-    '''
-    page = requests.get(url)
-    soup = BeautifulSoup(page.content, 'html.parser')
-    return soup
-
-
 def get_urls_all_years(url):
     '''
     written while falling asleep, will docstring later
@@ -143,36 +405,6 @@ def get_urls_one_year(url):
       if ('adobe' not in case.get('href')) and ('mailto' not in case.get('href')):
         yrurllst.append((f"https://hhs.gov{case.get('href')}", case.getText()))
     return yrurllst
-
-
-def convert_decision_binary(decision_txt):
-    '''
-    Converts the decision text from an appeals case to a binary outcome variable.
-    - 0 if appelate court affirms lower court's ruling
-    - 1 if appelate court overturns overturns lower court's ruling
-
-    Inputs:
-    decision_txt (str): the sentence containg the conclusion of the appelate court's
-        findings
-    
-    Returns: int
-    '''
-    outcome = None
-    overturn_lst = ['vacate']
-    affirm_lst = ['affirm', 'uphold', 'sustain']
-    overturned = re.search(r'(vacate)', decision_txt)
-    if overturned:
-        outcome = 1
-    else:
-         # nesting this to reduce # of re searches needed
-        affirmed = re.search(r'(affirm)|(uphold)|(sustain)', decision_txt)
-        if affirmed:
-            outcome = 0
-        else:
-            logging.info("Couldn't find outcome in the following decision text:\n",
-                         decision_txt)
-
-    return outcome
 
 
 def get_html_info(appeal_url, reject_lst, problem_lst):
