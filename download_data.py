@@ -278,7 +278,7 @@ def make_soup(url):
         soup = BeautifulSoup(page.content, 'html.parser')
         return soup
     except Exception as e:
-        log.warning(f"Couldn't access the following URL: {url}\nError message: {e}")
+        logging.warning(f"Couldn't access the following URL: {url}\nError message: {e}")
         return None
 
 
@@ -297,7 +297,7 @@ def scrape_decision_text(url):
         try:
             response = requests.get(url)
         except Exception as e:
-            log.warning(f"Couldn't access the following URL: {url}\nError message: {e}")
+            logging.warning(f"Couldn't access the following URL: {url}\nError message: {e}")
             return None
         pdfReader = PyPDF2.PdfFileReader(io.BytesIO(response.content))
         raw_text = ''
