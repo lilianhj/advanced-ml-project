@@ -315,7 +315,7 @@ def scrape_decision_text(url):
         for td in tables:
             paragraphs = td.find_all('p')
             for paragraph in paragraphs:
-                raw_text += paragraphs.getText()
+                raw_text += paragraph.getText()
         if not raw_text:
             return None
     else:
