@@ -4,6 +4,7 @@ CREATE TABLE raw_data (dab_id VARCHAR(7) PRIMARY KEY,
                        alj_text TEXT,
                        dab_url VARCHAR(255),
                        alj_url VARCHAR(255),
-                       decision TEXT);
+                       decision_text TEXT,
+                       decision_binary INTEGER);
 CREATE INDEX ON raw_data (dab_id);
 CREATE INDEX ON raw_data (alj_id);
