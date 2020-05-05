@@ -151,11 +151,11 @@ class Appeal:
         '''
         decision_format = get_decision_format(self.dab_url)
         if decision_format == PDF:
-            conclusion = re.search("(?<=Conclusion ).*?\.", self.dab_text)
+            conclusion = re.findall("(?<=Conclusion).*?\.", self.dab_text)
             if conclusion:
-                self.dab_outcome = conclusion.group()
+                self.dab_outcome = conclusion[-1]
         elif decision_format == OLD_HTML:
-            conclusion = re.findall("(?<=\.Conclusion).*?\.", self.dab_text)
+            conclusion = re.findall("(?<=Conclusion).*?\.", self.dab_text)
             if conclusion:
                 self.dab_outcome = conclusion[-1]
         else:
