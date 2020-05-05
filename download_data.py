@@ -45,12 +45,12 @@ PDF = 0
 OLD_HTML = 1
 NEW_HTML = 2
 
-TBL_WHITELIST = ['raw_data', 'raw_data_test']
+TBL_WHITELIST = ['raw_data', 'raw_data_test', 'raw_data_test2']
 
 logging.basicConfig(filename='scraper.log', level=logging.DEBUG)
 
 APPEAL_RECORD_FIELDS = ['dab_id', 'alj_id', 'dab_text', 'alj_text', 'dab_url', 'alj_url',
-                        'overturned']
+                        'outcome_text', 'overturned']
 AppealRecord = namedtuple("AppealRecord", APPEAL_RECORD_FIELDS)
 
 class Appeal:
@@ -178,10 +178,10 @@ class Appeal:
 
         Updates: self.dab_outcome_binary, if the outcome text is successfully converted
         '''
-        overturned = re.search(r'(vacate)', self.dab_outcome)
+        overturned = re.search(r'(vacate)|(reverse)|(remand)', self.dab_outcome)
         if overturned:
             self.dab_outcome_binary = 1
-        affirmed = re.search(r'(affirm)|(uphold)|(sustain)', self.dab_outcome)
+        affirmed = re.search(r'(affirm)|(uphold)|(sustain)|(deny)|(denies)|(correctly)|(legally sound)|(free from legal error)|(decline)', self.dab_outcome)
         if affirmed:
             self.dab_outcome_binary = 0
 
@@ -206,7 +206,7 @@ class Appeal:
         dab_url = urlunparse(self.dab_url) if self.dab_url is not None else None
         alj_url = urlunparse(self.alj_url) if self.alj_url is not None else None
         return AppealRecord(self.dab_id, self.alj_id, self.dab_text, self.alj_text,
-                            dab_url, alj_url, self.dab_outcome_binary)
+                            dab_url, alj_url, self.dab_outcome, self.dab_outcome_binary)
 
     def to_postgres(self, cur, table):
         '''
@@ -219,7 +219,7 @@ class Appeal:
         if table in TBL_WHITELIST:
             insert_statement = f"""
                                 INSERT INTO {table}
-                                VALUES (%s, %s, %s, %s, %s, %s, %s);
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
                                 """
             cur.execute(insert_statement, self.to_tuple())
 
@@ -299,7 +299,11 @@ def scrape_decision_text(url):
         except Exception as e:
             logging.warning(f"Couldn't access the following URL: {url}\nError message: {e}")
             return None
-        pdfReader = PyPDF2.PdfFileReader(io.BytesIO(response.content))
+        try:
+            pdfReader = PyPDF2.PdfFileReader(io.BytesIO(response.content))
+        except Exception as e:
+            logging.warning(f"Couldn't read this pdf: {url}\nError message: {e}")
+            return None
         raw_text = ''
         for page in pdfReader.pages:
             pg_text = page.extractText()
