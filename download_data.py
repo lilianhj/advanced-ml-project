@@ -1,25 +1,11 @@
 '''
-Functions to download appeals data and corresponding orignal case information
+Functions to scrape and parse HHS DAB appeals and corresponding original case information,
+then load these appeals to a PostgreSQL database.
 
 April 2020
-
-architecture:
-
-every year has one page of appeals (appeals in 2020, 2019, etc) - get URLs for those year pages (get_urls_all_years SHOULD do this but again i was half-asleep)
-2. for every year's page of appeals:
-get the URLs for all the appeals linked for that year (get_urls_one_year should do this)
-3. for each single appeal URL in a year:
-at this point, pull the appeal number from the link text
-pull the full text of the appeal (using a different function depending if it's HTML or pdf)
-pull the appeal decision (just the sentence for now, we'll worry about binary conversion later)
-get the case number and year of the original decision (a more robust version of get_orig_case_info)
-construct URL of original decision using case number and year. have both HTML and pdf
-go to the URL of original decision. try both HTML and pdf, if the HTML URL doesn't have a response it's a pdf so do that instead
-pull the full text of the original decision (using a different function depending if it's HTML or pdf)
-4. i'm thinking we write this straight into the database using psycopg2? obviously we can open/close cursors, etc, but this might be better than having intermediate csvs?
 '''
 import re
-import PyPDF2 # Food for thought: I think pdfminer.six may be a stronger library here?
+import PyPDF2
 import io
 import requests
 from urllib.parse import urlparse, urljoin, urlunparse
@@ -74,7 +60,7 @@ class Appeal:
                         f'\n{dab_url}')
             return None
 
-        self.dab_text = scrape_decision_text(self.dab_url)
+        self.dab_text, self.dab_soup = scrape_decision_text(self.dab_url, return_soup=True)
         if not self.dab_text:
             logging.warning("Couldn't extract DAB text for the following case: DAB ID " +
                         f"{self.dab_id}, DAB URL: {self.dab_url}")
@@ -119,6 +105,7 @@ class Appeal:
         self.dab_url = None
         self.dab_id = None
         self.dab_text = None
+        self.dab_soup = None
         self.dab_outcome = None
         self.dab_outcome_binary = None
         self.alj_id = None
@@ -159,15 +146,14 @@ class Appeal:
             if conclusion:
                 self.dab_outcome = conclusion[-1]
         else:
-            soup = make_soup(urlunparse(self.dab_url)) # I don't love hitting the website again here but...
-            if not soup:
-                logging.warning("Couldn't download the following DAB URL to extract" +
-                                f"outcome {urlunparse(self.dab_url)}")
+            if not self.dab_soup:
+                logging.warning("Soup is unavailable to extract the outcome for the " +
+                                f"following DAB URL: {urlunparse(self.dab_url)}")
                 return None
 
-            conclusion = soup.find("div", {"class": "legal-decision-judge"})\
-                             .find_previous()\
-                             .getText()
+            conclusion = self.dab_soup.find("div", {"class": "legal-decision-judge"})\
+                                      .find_previous()\
+                                      .getText()
             if conclusion:
                 self.dab_outcome = conclusion
 
@@ -282,14 +268,16 @@ def make_soup(url):
         return None
 
 
-def scrape_decision_text(url):
+def scrape_decision_text(url, return_soup=False):
     '''
     Obtain the text of a DAB or ALJ decision from the decision's URL.
 
     Inputs:
     url (str): the URL to get
+    return_soup (bool): return bs4.BeautifulSoup object the text was acquired from as well
+        as the text
 
-    Returns: string
+    Returns: string or tuple of string, bs4.BeautifulSoup
     '''
     url_type = get_decision_format(url)
     url = urlunparse(url)
@@ -328,7 +316,10 @@ def scrape_decision_text(url):
         else:
             return None
 
-    return clean_text(raw_text)
+    if return_soup:
+        return clean_text(raw_text), soup
+    else:
+        return clean_text(raw_text)
 
 def gen_alj_catalog_one_yr(url):
     '''
@@ -402,9 +393,9 @@ def get_dab_decisions(url):
     if not syndicate_div:
         raise Exception("Couldn't parse DAB catalog start page")
     for yr in syndicate_div.findAll('a'):
-        yr_lst.append((yr.getText(), f"https://hhs.gov{yr.get('href')}")) # my eyes bleed so this if for later but maybe should do this with urljoin
+        yr_lst.append((yr.getText(), f"https://hhs.gov{yr.get('href')}"))
     yr_url_dict = {}
-    for yrnum, yrurl in yr_lst[:21]: # a thought, why not just grab all and then deal with consequences later?
+    for yrnum, yrurl in yr_lst:
       yr_url_dict[yrnum] = get_dab_decisions_one_year(yrurl)
     return yr_url_dict
 
@@ -428,8 +419,8 @@ def get_dab_decisions_one_year(url):
         logging.warning(f"Couldn't parse DAB catalog from the following page: {url}")
         return {}
     for case in syndicate_div.findAll('a'):
-      if ('adobe' not in case.get('href')) and ('mailto' not in case.get('href')): # my eyes bleed so this if for later but maybe should do this with urljoin
-        yrurllst.append((f"https://hhs.gov{case.get('href')}", case.getText()))
+      if ('adobe' not in case.get('href')) and ('mailto' not in case.get('href')):
+        yrurllst.append(urljoin('https://www.hhs.gov', case.get('href')), case.getText())
     return yrurllst
 
 
