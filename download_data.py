@@ -166,8 +166,16 @@ class Appeal:
         overturned = re.search(r'(vacate)|(reverse)|(remand)', self.dab_outcome)
         if overturned:
             self.dab_outcome_binary = 1
-        affirmed_kwrds = r'(affirm)|(uphold)|(sustain)|(deny)|(denies)|(correctly)' +\
-                         r'|(legally sound)|(free from legal error)|(decline)'
+        affirmed_kwrds = r'(a\W{0,1}f\W{0,1}f\W{0,1}i\W{0,1}r\W{0,1}m)|' +\
+                         r'(u\W{0,1}p\W{0,1}h\W{0,1}o\W{0,1}l\W{0,1}d)|' +\
+                         r'(s\W{0,1}u\W{0,1}s\W{0,1}t\W{0,1}a\W{0,1}i\W{0,1}n)|' +\
+                         r'(d\W{0,1}e\W{0,1}n\W{0,1}y)|' +\
+                         r'(d\W{0,1}e\W{0,1}n\W{0,1}i\W{0,1}e\W{0,1}s)|' +\
+                         r'(d\W{0,1}e\W{0,1}n\W{0,1}i\W{0,1}e\W{0,1}d)|' +\
+                         r'(c\W{0,1}o\W{0,1}r\W{0,1}r\W{0,1}e\W{0,1}c\W{0,1}t\W{0,1}l\W{0,1}y)|' +\
+                         r'(l\W{0,1}e\W{0,1}g\W{0,1}a\W{0,1}l\W{0,1}l\W{0,1}y\W{0,2}s\W{0,1}o\W{0,1}u\W{0,1}n\W{0,1}d)|' +\
+                         r'(f\W{0,1}r\W{0,1}e\W{0,1}e\W{0,2}f\W{0,1}r\W{0,1}o\W{0,1}m\W{0,2}l\W{0,1}e\W{0,1}g\W{0,1}a\W{0,1}l\W{0,2}e\W{0,1}r\W{0,1}r\W{0,1}o\W{0,1}r)|' +\
+                         r'(d\W{0,1}e\W{0,1}c\W{0,1}l\W{0,1}i\W{0,1}n\W{0,1}e)'
         affirmed = re.search(affirmed_kwrds, self.dab_outcome)
         if affirmed:
             self.dab_outcome_binary = 0
