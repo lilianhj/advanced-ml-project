@@ -1,38 +1,23 @@
 '''
-Functions to download appeals data and corresponding orignal case information
+Functions to scrape and parse HHS DAB appeals and corresponding original case information,
+then load these appeals to a PostgreSQL database.
 
 April 2020
-
-architecture:
-
-every year has one page of appeals (appeals in 2020, 2019, etc) - get URLs for those year pages (get_urls_all_years SHOULD do this but again i was half-asleep)
-2. for every year's page of appeals:
-get the URLs for all the appeals linked for that year (get_urls_one_year should do this)
-3. for each single appeal URL in a year:
-at this point, pull the appeal number from the link text
-pull the full text of the appeal (using a different function depending if it's HTML or pdf)
-pull the appeal decision (just the sentence for now, we'll worry about binary conversion later)
-get the case number and year of the original decision (a more robust version of get_orig_case_info)
-construct URL of original decision using case number and year. have both HTML and pdf
-go to the URL of original decision. try both HTML and pdf, if the HTML URL doesn't have a response it's a pdf so do that instead
-pull the full text of the original decision (using a different function depending if it's HTML or pdf)
-4. i'm thinking we write this straight into the database using psycopg2? obviously we can open/close cursors, etc, but this might be better than having intermediate csvs?
 '''
-import re
-import PyPDF2 # Food for thought: I think pdfminer.six may be a stronger library here?
-import io
-import requests
-from urllib.parse import urlparse, urljoin, urlunparse
-from bs4 import BeautifulSoup
-from urllib.error import HTTPError
-import psycopg2
-import csv
-from configparser import ConfigParser
+
 import argparse
-# for testing
-import pandas as pd
-import logging
 from collections import namedtuple
+from configparser import ConfigParser
+import csv
+import io
+import logging
+import re
+from urllib.parse import urlparse, urljoin, urlunparse
+
+from bs4 import BeautifulSoup
+import psycopg2
+import PyPDF2
+import requests
 
 ALJ_START_PAGE = 'https://www.hhs.gov/about/agencies/dab/decisions/alj-decisions/' +\
                 'alj-decisions-by-year/index.html'
@@ -45,15 +30,19 @@ PDF = 0
 OLD_HTML = 1
 NEW_HTML = 2
 
-TBL_WHITELIST = ['raw_data', 'raw_data_test']
+TBL_WHITELIST = ['raw_data', 'raw_data_test', 'raw_data_test2']
 
 logging.basicConfig(filename='scraper.log', level=logging.DEBUG)
 
 APPEAL_RECORD_FIELDS = ['dab_id', 'alj_id', 'dab_text', 'alj_text', 'dab_url', 'alj_url',
-                        'overturned']
+                        'outcome_text', 'overturned']
 AppealRecord = namedtuple("AppealRecord", APPEAL_RECORD_FIELDS)
 
 class Appeal:
+    '''
+    A DAB appeal, containing informaiton both on the DAB cases and, if applicable, the
+    associated ALJ decision
+    '''
 
     def __init__(self, dab_url, dab_case_info, alj_catalog):
         '''
@@ -71,35 +60,35 @@ class Appeal:
         self.__extract_dab_id(dab_case_info)
         if not self.dab_id:
             logging.warning(f'The following appears not to be a DAB case: {dab_case_info} ' +
-                        f'\n{dab_url}')
+                            f'\n{dab_url}')
             return None
 
-        self.dab_text = scrape_decision_text(self.dab_url)
+        self.dab_text, self.dab_soup = scrape_decision_text(self.dab_url, return_soup=True)
         if not self.dab_text:
             logging.warning("Couldn't extract DAB text for the following case: DAB ID " +
-                        f"{self.dab_id}, DAB URL: {self.dab_url}")
+                            f"{self.dab_id}, DAB URL: {self.dab_url}")
             return None
 
         self.__extract_dab_outcome()
         if not self.dab_outcome:
-                logging.warning("Couldn't extract outcome for the following case:" +
-                                f"DAB ID: {self.dab_id}")
+            logging.warning("Couldn't extract outcome for the following case:" +
+                            f"DAB ID: {self.dab_id}")
         else:
             self.__convert_dab_outcome()
             if not self.dab_outcome_binary:
                 logging.warning("Couldn't convert outcome to binary for the following case: " +
-                            f"DAB ID: {self.dab_id}\nOutcome text:\n{self.dab_outcome}")
+                                f"DAB ID: {self.dab_id}\nOutcome text:\n{self.dab_outcome}")
 
         self.__extract_alj_id()
         if not self.alj_id:
             logging.warning("Couldn't find ALJ ID for the following case: DAB ID: " +
-                        f"{self.dab_id}")
+                            f"{self.dab_id}")
             return None
 
         self.alj_url = alj_catalog.get(self.alj_id, None)
         if not self.alj_url:
             logging.warning("Couldn't find ALJ URL for the following case: DAB ID: " +
-                        f"{self.dab_id}, ALJ ID: {self.alj_id}")
+                            f"{self.dab_id}, ALJ ID: {self.alj_id}")
             return None
 
         self.alj_text = scrape_decision_text(self.alj_url)
@@ -119,6 +108,7 @@ class Appeal:
         self.dab_url = None
         self.dab_id = None
         self.dab_text = None
+        self.dab_soup = None
         self.dab_outcome = None
         self.dab_outcome_binary = None
         self.alj_id = None
@@ -150,24 +140,19 @@ class Appeal:
         Updates: self.dab_outcome, if a text outcome is successfully found
         '''
         decision_format = get_decision_format(self.dab_url)
-        if decision_format == PDF:
-            conclusion = re.findall("(?<=Conclusion).*?\.", self.dab_text)
-            if conclusion:
-                self.dab_outcome = conclusion[-1]
-        elif decision_format == OLD_HTML:
-            conclusion = re.findall("(?<=Conclusion).*?\.", self.dab_text)
+        if decision_format == PDF or decision_format == OLD_HTML:
+            conclusion = re.findall(r'(?<=Conclusion).*?\.', self.dab_text)
             if conclusion:
                 self.dab_outcome = conclusion[-1]
         else:
-            soup = make_soup(urlunparse(self.dab_url)) # I don't love hitting the website again here but...
-            if not soup:
-                logging.warning("Couldn't download the following DAB URL to extract" +
-                                f"outcome {urlunparse(self.dab_url)}")
+            if not self.dab_soup:
+                logging.warning("Soup is unavailable to extract the outcome for the " +
+                                f"following DAB URL: {urlunparse(self.dab_url)}")
                 return None
 
-            conclusion = soup.find("div", {"class": "legal-decision-judge"})\
-                             .find_previous()\
-                             .getText()
+            conclusion = self.dab_soup.find("div", {"class": "legal-decision-judge"})\
+                                      .find_previous()\
+                                      .getText()
             if conclusion:
                 self.dab_outcome = conclusion
 
@@ -178,10 +163,20 @@ class Appeal:
 
         Updates: self.dab_outcome_binary, if the outcome text is successfully converted
         '''
-        overturned = re.search(r'(vacate)', self.dab_outcome)
+        overturned = re.search(r'(vacate)|(reverse)|(remand)', self.dab_outcome)
         if overturned:
             self.dab_outcome_binary = 1
-        affirmed = re.search(r'(affirm)|(uphold)|(sustain)', self.dab_outcome)
+        affirmed_kwrds = r'(a\W{0,1}f\W{0,1}f\W{0,1}i\W{0,1}r\W{0,1}m)|' +\
+                         r'(u\W{0,1}p\W{0,1}h\W{0,1}o\W{0,1}l\W{0,1}d)|' +\
+                         r'(s\W{0,1}u\W{0,1}s\W{0,1}t\W{0,1}a\W{0,1}i\W{0,1}n)|' +\
+                         r'(d\W{0,1}e\W{0,1}n\W{0,1}y)|' +\
+                         r'(d\W{0,1}e\W{0,1}n\W{0,1}i\W{0,1}e\W{0,1}s)|' +\
+                         r'(d\W{0,1}e\W{0,1}n\W{0,1}i\W{0,1}e\W{0,1}d)|' +\
+                         r'(c\W{0,1}o\W{0,1}r\W{0,1}r\W{0,1}e\W{0,1}c\W{0,1}t\W{0,1}l\W{0,1}y)|' +\
+                         r'(l\W{0,1}e\W{0,1}g\W{0,1}a\W{0,1}l\W{0,1}l\W{0,1}y\W{0,2}s\W{0,1}o\W{0,1}u\W{0,1}n\W{0,1}d)|' +\
+                         r'(f\W{0,1}r\W{0,1}e\W{0,1}e\W{0,2}f\W{0,1}r\W{0,1}o\W{0,1}m\W{0,2}l\W{0,1}e\W{0,1}g\W{0,1}a\W{0,1}l\W{0,2}e\W{0,1}r\W{0,1}r\W{0,1}o\W{0,1}r)|' +\
+                         r'(d\W{0,1}e\W{0,1}c\W{0,1}l\W{0,1}i\W{0,1}n\W{0,1}e)'
+        affirmed = re.search(affirmed_kwrds, self.dab_outcome)
         if affirmed:
             self.dab_outcome_binary = 0
 
@@ -206,7 +201,7 @@ class Appeal:
         dab_url = urlunparse(self.dab_url) if self.dab_url is not None else None
         alj_url = urlunparse(self.alj_url) if self.alj_url is not None else None
         return AppealRecord(self.dab_id, self.alj_id, self.dab_text, self.alj_text,
-                            dab_url, alj_url, self.dab_outcome_binary)
+                            dab_url, alj_url, self.dab_outcome, self.dab_outcome_binary)
 
     def to_postgres(self, cur, table):
         '''
@@ -216,10 +211,10 @@ class Appeal:
         cur (psycopg2 cursor): cursors to execute the insert with
         table (str): table name to insert the appeal to (must be in TBL_WHITELIST)
         '''
-        if table in TBL_WHITELIST:
+        if table in TBL_WHITELIST: # necessary to prevent SQL injection
             insert_statement = f"""
                                 INSERT INTO {table}
-                                VALUES (%s, %s, %s, %s, %s, %s, %s);
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
                                 """
             cur.execute(insert_statement, self.to_tuple())
 
@@ -282,33 +277,40 @@ def make_soup(url):
         return None
 
 
-def scrape_decision_text(url):
+def scrape_decision_text(url, return_soup=False):
     '''
     Obtain the text of a DAB or ALJ decision from the decision's URL.
 
     Inputs:
     url (str): the URL to get
+    return_soup (bool): return bs4.BeautifulSoup object the text was acquired from as well
+        as the text if the decision is from an HTML page
 
-    Returns: string
+    Returns: string or tuple of string, bs4.BeautifulSoup
     '''
     url_type = get_decision_format(url)
     url = urlunparse(url)
+    soup = None # ensures return_soup doesn't throw an error for PDFs
     if url_type == PDF:
         try:
             response = requests.get(url)
         except Exception as e:
             logging.warning(f"Couldn't access the following URL: {url}\nError message: {e}")
             return None
-        pdfReader = PyPDF2.PdfFileReader(io.BytesIO(response.content))
+        try:
+            pdf_reader = PyPDF2.PdfFileReader(io.BytesIO(response.content))
+        except Exception as e:
+            logging.warning(f"Couldn't read this pdf: {url}\nError message: {e}")
+            return None
         raw_text = ''
-        for page in pdfReader.pages:
+        for page in pdf_reader.pages:
             pg_text = page.extractText()
             raw_text += pg_text
-        if not raw_text:
-            return None
     elif url_type == OLD_HTML:
         soup = make_soup(url)
-        if not soup:
+        if not soup and return_soup:
+            return (None, None)
+        elif not soup:
             return None
         tables = soup.find_all("td", {"colspan": "2"})[1:]
         raw_text = ''
@@ -316,19 +318,27 @@ def scrape_decision_text(url):
             paragraphs = td.find_all('p')
             for paragraph in paragraphs:
                 raw_text += paragraph.getText()
-        if not raw_text:
-            return None
     else:
         soup = make_soup(url)
-        if not soup:
+        if not soup and return_soup:
+            return (None, None)
+        elif not soup:
             return None
+        raw_text = None # allows simpler check for raw_text
         text_section = soup.find("div", {"class": "field-name-body"})
         if text_section:
             raw_text = text_section.getText()
+
+    if not raw_text:
+        if return_soup:
+            return (None, None)
         else:
             return None
-
-    return clean_text(raw_text)
+    else:
+        if return_soup:
+            return clean_text(raw_text), soup
+        else:
+            return clean_text(raw_text)
 
 def gen_alj_catalog_one_yr(url):
     '''
@@ -402,10 +412,11 @@ def get_dab_decisions(url):
     if not syndicate_div:
         raise Exception("Couldn't parse DAB catalog start page")
     for yr in syndicate_div.findAll('a'):
-        yr_lst.append((yr.getText(), f"https://hhs.gov{yr.get('href')}")) # my eyes bleed so this if for later but maybe should do this with urljoin
+        yr_lst.append((yr.getText(), urljoin('https://hhs.gov', yr.get('href'))))
     yr_url_dict = {}
-    for yrnum, yrurl in yr_lst[:21]: # a thought, why not just grab all and then deal with consequences later?
-      yr_url_dict[yrnum] = get_dab_decisions_one_year(yrurl)
+    for yrnum, yrurl in yr_lst:
+        if int(yrnum) >= 2000: # only process cases after 2000
+            yr_url_dict[yrnum] = get_dab_decisions_one_year(yrurl)
     return yr_url_dict
 
 
@@ -428,8 +439,9 @@ def get_dab_decisions_one_year(url):
         logging.warning(f"Couldn't parse DAB catalog from the following page: {url}")
         return {}
     for case in syndicate_div.findAll('a'):
-      if ('adobe' not in case.get('href')) and ('mailto' not in case.get('href')): # my eyes bleed so this if for later but maybe should do this with urljoin
-        yrurllst.append((f"https://hhs.gov{case.get('href')}", case.getText()))
+        if ('adobe' not in case.get('href')) and ('mailto' not in case.get('href')):
+            yrurllst.append((urljoin('https://www.hhs.gov', case.get('href')),
+                             case.getText()))
     return yrurllst
 
 
@@ -464,15 +476,14 @@ def go(alj_start=ALJ_START_PAGE, dab_start=DAB_START_PAGE, credentials='secrets.
     cases_uploaded = 0
     cases_failed = 0
     print('-' * 10 + '\nStarting case processing.\n' + '-' * 10)
-    for year in dab_decisions.keys():
-        cases = dab_decisions[year]
+    for cases in dab_decisions.values():
         if limit:
             cases = cases[:limit]
         for url, case_info in cases:
             appeal = Appeal(url, case_info, alj_catalog)
             try:
                 appeal.to_postgres(cur, load_table)
-                conn.commit() # this is the error
+                conn.commit()
                 cases_uploaded += 1
             except Exception as e:
                 conn.rollback()
@@ -486,7 +497,7 @@ def go(alj_start=ALJ_START_PAGE, dab_start=DAB_START_PAGE, credentials='secrets.
             cases_processed = cases_uploaded + cases_failed
             if not cases_processed % 50:
                 print(f'{cases_processed}/{total_dab_cases} cases processed ' +
-                    f'({cases_uploaded} successful, {cases_failed} failed)')
+                      f'({cases_uploaded} successful, {cases_failed} failed)')
     print('-' * 10 + '\nCase processing complete.\n' + '-' * 10)
     if save_failed:
         failed_csv.close()
