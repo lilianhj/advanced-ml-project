@@ -17,7 +17,6 @@ from urllib.parse import urlparse, urljoin, urlunparse
 
 from bs4 import BeautifulSoup
 import psycopg2
-#import PyPDF2
 import requests
 import textract
 
