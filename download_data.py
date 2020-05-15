@@ -131,9 +131,7 @@ class Appeal:
 
         Updates: self.dab_id, if a DAB case number is successfully found
         '''
-        dab_str = re.search(r'(((DAB)|(RUL))[- ]{0,1}[\d-]*\d)|(A-[\d-]*\d)', case_info_str)
-        print(dab_str)
-        print(case_info_str)
+        dab_str = re.search(r'(((DAB)|(RUL)|(ER))[- ]{0,1}[\d-]*\d)|(A-[\d-]*\d)', case_info_str)
         if dab_str:
             self.dab_id = dab_str.group(0)
 
@@ -143,15 +141,21 @@ class Appeal:
 
         Updates: self.dab_outcome, if a text outcome is successfully found
         '''
-        decision_format = get_decision_format(self.dab_url)
+        decision_format = get_decision_format(self.dab_url) 
         if decision_format == PDF or decision_format == OLD_HTML:
-            conclusion = re.findall(r'(?<=Conclusion).*?\.', self.dab_text)
+            conclusion = re.findall(r'(?<=Conclusion).*?\.', self.dab_text) #read conclusion to the end?
             if conclusion:
                 self.dab_outcome = conclusion[-1]
+            
+            else:
+                logging.warning("Unable to extract the outcome for the folloowing DAB " +
+                                f"URL: {urlunparse(self.dab_url)}\n Defaulting to the " +
+                                "first and last 500 character.")
+                self.dab_outcome = self.dab_text[:1000] + ' ' + self.dab_text[-1000:]
         else:
             if not self.dab_soup:
                 logging.warning("Soup is unavailable to extract the outcome for the " +
-                                f"following DAB URL: {urlunparse(self.dab_url)}")
+                                f"following DAB URL: {urlunparse(self.dab_url)}\n")
                 return None
 
             conclusion = self.dab_soup.find("div", {"class": "legal-decision-judge"})\
@@ -173,9 +177,7 @@ class Appeal:
                           r'(e\W{0,1}r\W{0,1}r\W{0,1}e\W{0,1}d)|' +\
                           r'(m\W{0,1}o\W{0,1}d\W{0,1}i\W{0,1}f\W{0,1}y)|' +\
                           r'(m\W{0,1}o\W{0,1}d\W{0,1}i\W{0,1}f\W{0,1}i\W{0,1}e\W{0,1}s)'
-        overturned = re.search(overturned_kwrd, self.dab_outcome)
-        if overturned:
-            self.dab_outcome_binary = 1
+        overturned = re.search(overturned_kwrd, self.dab_outcome, re.I)
         affirmed_kwrds = r'(a\W{0,1}f\W{0,1}f\W{0,1}i\W{0,1}r\W{0,1}m)|' +\
                          r'(u\W{0,1}p\W{0,1}h\W{0,1}o\W{0,1}l\W{0,1}d)|' +\
                          r'(s\W{0,1}u\W{0,1}s\W{0,1}t\W{0,1}a\W{0,1}i\W{0,1}n)|' +\
@@ -186,10 +188,14 @@ class Appeal:
                          r'(l\W{0,1}e\W{0,1}g\W{0,1}a\W{0,1}l\W{0,1}l\W{0,1}y\W{0,2}s\W{0,1}o\W{0,1}u\W{0,1}n\W{0,1}d)|' +\
                          r'(f\W{0,1}r\W{0,1}e\W{0,1}e\W{0,2}f\W{0,1}r\W{0,1}o\W{0,1}m\W{0,2}l\W{0,1}e\W{0,1}g\W{0,1}a\W{0,1}l\W{0,2}e\W{0,1}r\W{0,1}r\W{0,1}o\W{0,1}r)|' +\
                          r'(d\W{0,1}e\W{0,1}c\W{0,1}l\W{0,1}i\W{0,1}n\W{0,1}e)|' +\
-                         r'(d\W{0,1}i\W{0,1}d\W{0,2}n\W{0,1}o\W{0,1}t\W{0,2}e\W{0,1}r\W{0,1}r)'
-        affirmed = re.search(affirmed_kwrds, self.dab_outcome)
-        if affirmed:
+                         r'(d\W{0,1}i\W{0,1}d\W{0,2}n\W{0,1}o\W{0,1}t\W{0,2}e\W{0,1}r\W{0,1}r)|' +\
+                         r'(n\W{0,1}o\W{0,2}n\W{0,1}e\W{0,1}e\W{0,1}d\W{0,2}t\W{0,1}o)|' +\
+                         r'(n\W{0,1}o\W{0,2}g\W{0,1}e\W{0,1}n\W{0,1}u\W{0,1}i\W{0,1}n\W{0,1}e\W{0,2}d\W{0,1}i\W{0,1}s\W{0,1}p\W{0,1}u\W{0,1}t\W{0,1}e)'
+        affirmed = re.search(affirmed_kwrds, self.dab_outcome, re.I)
+        if affirmed and not overturned:
             self.dab_outcome_binary = 0
+        if overturned and not affirmed:
+            self.dab_outcome_binary = 1
 
     def __extract_alj_id(self):
         '''
@@ -287,7 +293,7 @@ def make_soup(url):
         logging.warning(f"Couldn't access the following URL: {url}\nError message: {e}")
         return None
 
-def scrape_decision_text(url, return_soup=False):
+def scrape_decision_text(url, return_soup=False): # need to clean this up to eliminate inconsistent return
     '''
     Obtain the text of a DAB or ALJ decision from the decision's URL.
 
