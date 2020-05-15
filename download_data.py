@@ -2,7 +2,7 @@
 Functions to scrape and parse HHS DAB appeals and corresponding original case information,
 then load these appeals to a PostgreSQL database.
 
-April 2020
+April 2020  
 '''
 
 import argparse
@@ -11,19 +11,22 @@ from configparser import ConfigParser
 import csv
 import io
 import logging
+import os
 import re
 from urllib.parse import urlparse, urljoin, urlunparse
 
 from bs4 import BeautifulSoup
 import psycopg2
-import PyPDF2
+#import PyPDF2
 import requests
+import textract
+
 
 ALJ_START_PAGE = 'https://www.hhs.gov/about/agencies/dab/decisions/alj-decisions/' +\
                 'alj-decisions-by-year/index.html'
 DAB_START_PAGE = 'https://www.hhs.gov/about/agencies/dab/decisions/board-decisions/' +\
                  'board-decisions-by-year/index.html'
-
+TEMP_FILE_LOC = os.path.join(os.path.dirname(__file__), 'temporary.pdf')
 OLD_URL_PATTERN = r'files/static/dab/decisions/'
 
 PDF = 0
@@ -58,41 +61,41 @@ class Appeal:
         self.dab_url = urlparse(dab_url)
 
         self.__extract_dab_id(dab_case_info)
-        if not self.dab_id:
+        if self.dab_id is None:
             logging.warning(f'The following appears not to be a DAB case: {dab_case_info} ' +
                             f'\n{dab_url}')
             return None
 
         self.dab_text, self.dab_soup = scrape_decision_text(self.dab_url, return_soup=True)
-        if not self.dab_text:
+        if self.dab_text is None:
             logging.warning("Couldn't extract DAB text for the following case: DAB ID " +
                             f"{self.dab_id}, DAB URL: {self.dab_url}")
             return None
 
         self.__extract_dab_outcome()
-        if not self.dab_outcome:
+        if self.dab_outcome is None:
             logging.warning("Couldn't extract outcome for the following case:" +
                             f"DAB ID: {self.dab_id}")
         else:
             self.__convert_dab_outcome()
-            if not self.dab_outcome_binary:
+            if self.dab_outcome_binary is None:
                 logging.warning("Couldn't convert outcome to binary for the following case: " +
                                 f"DAB ID: {self.dab_id}\nOutcome text:\n{self.dab_outcome}")
 
         self.__extract_alj_id()
-        if not self.alj_id:
+        if self.alj_id is None:
             logging.warning("Couldn't find ALJ ID for the following case: DAB ID: " +
                             f"{self.dab_id}")
             return None
 
         self.alj_url = alj_catalog.get(self.alj_id, None)
-        if not self.alj_url:
+        if self.alj_url is None:
             logging.warning("Couldn't find ALJ URL for the following case: DAB ID: " +
                             f"{self.dab_id}, ALJ ID: {self.alj_id}")
             return None
 
         self.alj_text = scrape_decision_text(self.alj_url)
-        if not self.alj_text:
+        if self.alj_text is None:
             logging.warning("Couldn't scrape ALJ text for the following case: DAB ID: " +
                             f"{self.dab_id}, ALJ ID: {self.alj_id}" +
                             f"ALJ URL: {urlunparse(self.alj_url)}")
@@ -163,7 +166,13 @@ class Appeal:
 
         Updates: self.dab_outcome_binary, if the outcome text is successfully converted
         '''
-        overturned = re.search(r'(vacate)|(reverse)|(remand)', self.dab_outcome)
+        overturned_kwrd = r'(v\W{0,1}a\W{0,1}c\W{0,1}a\W{0,1}t\W{0,1}e)|' +\
+                          r'(r\W{0,1}e\W{0,1}v\W{0,1}e\W{0,1}r\W{0,1}s\W{0,1}e)|' +\
+                          r'(r\W{0,1}e\W{0,1}m\W{0,1}a\W{0,1}n\W{0,1}d)|' +\
+                          r'(e\W{0,1}r\W{0,1}r\W{0,1}e\W{0,1}d)|' +\
+                          r'(m\W{0,1}o\W{0,1}d\W{0,1}i\W{0,1}f\W{0,1}y)|' +\
+                          r'(m\W{0,1}o\W{0,1}d\W{0,1}i\W{0,1}f\W{0,1}i\W{0,1}e\W{0,1}s)'
+        overturned = re.search(overturned_kwrd, self.dab_outcome)
         if overturned:
             self.dab_outcome_binary = 1
         affirmed_kwrds = r'(a\W{0,1}f\W{0,1}f\W{0,1}i\W{0,1}r\W{0,1}m)|' +\
@@ -175,7 +184,8 @@ class Appeal:
                          r'(c\W{0,1}o\W{0,1}r\W{0,1}r\W{0,1}e\W{0,1}c\W{0,1}t\W{0,1}l\W{0,1}y)|' +\
                          r'(l\W{0,1}e\W{0,1}g\W{0,1}a\W{0,1}l\W{0,1}l\W{0,1}y\W{0,2}s\W{0,1}o\W{0,1}u\W{0,1}n\W{0,1}d)|' +\
                          r'(f\W{0,1}r\W{0,1}e\W{0,1}e\W{0,2}f\W{0,1}r\W{0,1}o\W{0,1}m\W{0,2}l\W{0,1}e\W{0,1}g\W{0,1}a\W{0,1}l\W{0,2}e\W{0,1}r\W{0,1}r\W{0,1}o\W{0,1}r)|' +\
-                         r'(d\W{0,1}e\W{0,1}c\W{0,1}l\W{0,1}i\W{0,1}n\W{0,1}e)'
+                         r'(d\W{0,1}e\W{0,1}c\W{0,1}l\W{0,1}i\W{0,1}n\W{0,1}e)|' +\
+                         r'(d\W{0,1}i\W{0,1}d\W{0,2}n\W{0,1}o\W{0,1}t\W{0,2}e\W{0,1}r\W{0,1}r)'
         affirmed = re.search(affirmed_kwrds, self.dab_outcome)
         if affirmed:
             self.dab_outcome_binary = 0
@@ -257,7 +267,7 @@ def clean_text(raw_text):
 
     Returns: string
     '''
-    return raw_text.replace("\n", ' ')
+    return re.sub(r'(\n)|(\d{0,3}\x0c\d{0,3})|(Page \d{0,3})', ' ', raw_text)
 
 def make_soup(url):
     '''
@@ -276,13 +286,12 @@ def make_soup(url):
         logging.warning(f"Couldn't access the following URL: {url}\nError message: {e}")
         return None
 
-
 def scrape_decision_text(url, return_soup=False):
     '''
     Obtain the text of a DAB or ALJ decision from the decision's URL.
 
     Inputs:
-    url (str): the URL to get
+    url (urllib.parse.ParseResult): the URL to get
     return_soup (bool): return bs4.BeautifulSoup object the text was acquired from as well
         as the text if the decision is from an HTML page
 
@@ -296,16 +305,19 @@ def scrape_decision_text(url, return_soup=False):
             response = requests.get(url)
         except Exception as e:
             logging.warning(f"Couldn't access the following URL: {url}\nError message: {e}")
+            if return_soup:
+                return (None, None)
             return None
         try:
-            pdf_reader = PyPDF2.PdfFileReader(io.BytesIO(response.content))
+            with open(TEMP_FILE_LOC, 'wb') as pdf_f:
+                pdf_f.write(response.content)
+            raw_text = textract.process(TEMP_FILE_LOC).decode('utf-8')
+            os.remove(TEMP_FILE_LOC)
         except Exception as e:
             logging.warning(f"Couldn't read this pdf: {url}\nError message: {e}")
+            if return_soup:
+                return (None, None)
             return None
-        raw_text = ''
-        for page in pdf_reader.pages:
-            pg_text = page.extractText()
-            raw_text += pg_text
     elif url_type == OLD_HTML:
         soup = make_soup(url)
         if not soup and return_soup:
