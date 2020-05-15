@@ -1,5 +1,5 @@
-CREATE TABLE raw_data (dab_id VARCHAR(7) PRIMARY KEY,
-                       alj_id VARCHAR(7),
+CREATE TABLE raw_data (dab_id VARCHAR(12) PRIMARY KEY,
+                       alj_id VARCHAR(12),
                        dab_text TEXT,
                        alj_text TEXT,
                        dab_url VARCHAR(255),

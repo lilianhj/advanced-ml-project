@@ -131,16 +131,11 @@ class Appeal:
 
         Updates: self.dab_id, if a DAB case number is successfully found
         '''
-        dab_str = re.search(r'(?<=[dab|dab-|dab ])\d*\d', case_info_str.lower())
+        dab_str = re.search(r'(((DAB)|(RUL))[- ]{0,1}[\d-]*\d)|(A-[\d-]*\d)', case_info_str)
+        print(dab_str)
+        print(case_info_str)
         if dab_str:
-            dab_id = dab_str.group()
-
-        if not dab_str or len(dab_id) != 4:
-            dab_str = re.search(r'(?<=a-)\d.*(?=;)', case_info_str.lower())
-
-        if dab_str:
-            self.dab_id = ''.join(re.findall(r'\d+', dab_str.group()))
-
+            self.dab_id = dab_str.group(0)
 
     def __extract_dab_outcome(self):
         '''
