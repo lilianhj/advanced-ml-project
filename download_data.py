@@ -293,7 +293,7 @@ def make_soup(url):
         logging.warning(f"Couldn't access the following URL: {url}\nError message: {e}")
         return None
 
-def scrape_decision_text(url, return_soup=False): # need to clean this up to eliminate inconsistent return
+def scrape_decision_text(url):
     '''
     Obtain the text of a DAB or ALJ decision from the decision's URL.
 
@@ -302,7 +302,7 @@ def scrape_decision_text(url, return_soup=False): # need to clean this up to eli
     return_soup (bool): return bs4.BeautifulSoup object the text was acquired from as well
         as the text if the decision is from an HTML page
 
-    Returns: string or tuple of string, bs4.BeautifulSoup
+    Returns: tuple of string, bs4.BeautifulSoup
     '''
     url_type = get_decision_format(url)
     url = urlunparse(url)
@@ -312,9 +312,7 @@ def scrape_decision_text(url, return_soup=False): # need to clean this up to eli
             response = requests.get(url)
         except Exception as e:
             logging.warning(f"Couldn't access the following URL: {url}\nError message: {e}")
-            if return_soup:
-                return (None, None)
-            return None
+            return (None, None)
         try:
             with open(TEMP_FILE_LOC, 'wb') as pdf_f:
                 pdf_f.write(response.content)
@@ -322,15 +320,11 @@ def scrape_decision_text(url, return_soup=False): # need to clean this up to eli
             os.remove(TEMP_FILE_LOC)
         except Exception as e:
             logging.warning(f"Couldn't read this pdf: {url}\nError message: {e}")
-            if return_soup:
-                return (None, None)
-            return None
+            return (None, None)
     elif url_type == OLD_HTML:
         soup = make_soup(url)
-        if not soup and return_soup:
+        if not soup:
             return (None, None)
-        elif not soup:
-            return None
         tables = soup.find_all("td", {"colspan": "2"})[1:]
         raw_text = ''
         for td in tables:
@@ -339,25 +333,17 @@ def scrape_decision_text(url, return_soup=False): # need to clean this up to eli
                 raw_text += paragraph.getText()
     else:
         soup = make_soup(url)
-        if not soup and return_soup:
+        if not soup:
             return (None, None)
-        elif not soup:
-            return None
         raw_text = None # allows simpler check for raw_text
         text_section = soup.find("div", {"class": "field-name-body"})
         if text_section:
             raw_text = text_section.getText()
 
-    if not raw_text:
-        if return_soup:
-            return (None, None)
-        else:
-            return None
+    if raw_text is None:
+        return raw_text, soup
     else:
-        if return_soup:
-            return clean_text(raw_text), soup
-        else:
-            return clean_text(raw_text)
+        return clean_text(raw_text), soup
 
 def gen_alj_catalog_one_yr(url):
     '''
