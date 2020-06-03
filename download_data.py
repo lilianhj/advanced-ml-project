@@ -16,7 +16,8 @@ import re
 from urllib.parse import urlparse, urljoin, urlunparse
 
 from bs4 import BeautifulSoup
-import psycopg2
+import psycopg2 as pg
+import psycopg2.sql as sql
 import requests
 import textract
 
@@ -32,7 +33,7 @@ PDF = 0
 OLD_HTML = 1
 NEW_HTML = 2
 
-TBL_WHITELIST = ['raw_data', 'raw_data_test', 'raw_data_test2']
+TBL_WHITELIST = ['raw_data', 'raw_data_test', 'raw_data_exp']
 
 logging.basicConfig(filename='scraper.log', level=logging.DEBUG)
 
@@ -66,7 +67,7 @@ class Appeal:
                             f'\n{dab_url}')
             return None
 
-        self.dab_text, self.dab_soup = scrape_decision_text(self.dab_url, return_soup=True)
+        self.dab_text, self.dab_soup = scrape_decision_text(self.dab_url)
         if self.dab_text is None:
             logging.warning("Couldn't extract DAB text for the following case: DAB ID " +
                             f"{self.dab_id}, DAB URL: {self.dab_url}")
@@ -98,7 +99,7 @@ class Appeal:
             if alj_year:
                 self.alj_year = alj_year.group(1)
 
-        self.alj_text = scrape_decision_text(self.alj_url)
+        self.alj_text, _ = scrape_decision_text(self.alj_url)
         if self.alj_text is None:
             logging.warning("Couldn't scrape ALJ text for the following case: DAB ID: " +
                             f"{self.dab_id}, ALJ ID: {self.alj_id}" +
@@ -228,12 +229,15 @@ class Appeal:
         cur (psycopg2 cursor): cursors to execute the insert with
         table (str): table name to insert the appeal to (must be in TBL_WHITELIST)
         '''
-        if table in TBL_WHITELIST: # necessary to prevent SQL injection
-            insert_statement = f"""
-                                INSERT INTO {table}
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
-                                """
+        if table in TBL_WHITELIST: # check table name safety
+            insert_statement = sql.SQL("""
+                                        INSERT INTO {}
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
+                                                %s, %s);
+                                """).format(sql.Identifier(table))
             cur.execute(insert_statement, self.to_tuple())
+        else:
+            raise Exception('Specified upload table not whitelisted.')
 
     def __repr__(self):
         '''
@@ -299,8 +303,6 @@ def scrape_decision_text(url):
 
     Inputs:
     url (urllib.parse.ParseResult): the URL to get
-    return_soup (bool): return bs4.BeautifulSoup object the text was acquired from as well
-        as the text if the decision is from an HTML page
 
     Returns: tuple of string, bs4.BeautifulSoup
     '''
@@ -452,7 +454,7 @@ def get_dab_decisions_one_year(url):
 
 ## MAIN FLOW
 def go(alj_start=ALJ_START_PAGE, dab_start=DAB_START_PAGE, credentials='secrets.ini',
-       load_table='raw_data_test', save_failed=None, limit=None):
+       load_table='raw_data', save_failed=None, limit=None):
     '''
     Generate all appeals records and load them to a PostgreSQL database.
 
@@ -472,7 +474,7 @@ def go(alj_start=ALJ_START_PAGE, dab_start=DAB_START_PAGE, credentials='secrets.
     dab_decisions = get_dab_decisions(dab_start)
     total_dab_cases = sum(len(val) for key, val in dab_decisions.items())
 
-    conn = psycopg2.connect(**config['Advanced ML Database'])
+    conn = pg.connect(**config['Advanced ML Database'])
     cur = conn.cursor()
     if save_failed:
         failed_csv = open(save_failed, 'w')
@@ -515,11 +517,11 @@ if __name__ == '__main__':
                         help='root webpage to find all the DAB decisions')
     parser.add_argument('--creds', dest='credentials', default='secrets.ini', type=str,
                         help='filepath to DB credentials')
-    parser.add_argument('--table', dest='load_table', default='raw_data_test', type=str,
-                        help='table to load appeals data to')
+    parser.add_argument('--table', dest='load_table', default='raw_data', type=str,
+                        help='table to load appeals data to (note: table must be whitelisted)')
     parser.add_argument('--failedcsv', dest='save_failed', default=None, type=str,
                         help='filepath to save CSV of failed uploads')
     parser.add_argument('--limit', dest='limit', default=None, type=int,
-                        help='limit the number of records looked at in a given year')
+                        help='limit the number of records looked at in a given year (debugging setting)')
     args = parser.parse_args()
     go(**args.__dict__)
