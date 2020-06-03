@@ -144,7 +144,7 @@ class Appeal:
         '''
         decision_format = get_decision_format(self.dab_url) 
         if decision_format == PDF or decision_format == OLD_HTML:
-            conclusion = re.findall(r'(?<=Conclusion).*?\.', self.dab_text) #read conclusion to the end?
+            conclusion = re.findall(r'(?<=Conclusion|CONCLUSION).*?\.', self.dab_text) #read conclusion to the end?
             if conclusion:
                 self.dab_outcome = conclusion[-1]
             
@@ -329,10 +329,15 @@ def scrape_decision_text(url):
             return (None, None)
         tables = soup.find_all("td", {"colspan": "2"})[1:]
         raw_text = ''
-        for td in tables:
-            paragraphs = td.find_all('p')
-            for paragraph in paragraphs:
-                raw_text += paragraph.getText()
+        if tables:
+            for td in tables:
+                paragraphs = td.find_all('p')
+                for paragraph in paragraphs:
+                    raw_text += paragraph.getText()
+        else:
+            paras = soup.find("body").find_all("p")
+            for para in paras:
+                raw_text += para.getText()
     else:
         soup = make_soup(url)
         if not soup:
@@ -400,12 +405,14 @@ def gen_alj_catalog(start_url):
 
     return decision_dict
 
-def get_dab_decisions(url):
+def get_dab_decisions(url, year_lb=float('-inf'), year_ub=float('inf')):
     '''
     Find all DAB decisions.
 
     Inputs:
     start_url (str): root webpage to find all the DAB decisions
+    year_lb (numeric): first year to grab DAB decisions from
+    year_ub (numeric): last year to grab DAB decisions from
 
     Returns: dictionary with years (str) as keys and list of tuples like
              (case url (str), case info (str)), where each tuple represents a case with
@@ -422,10 +429,9 @@ def get_dab_decisions(url):
         yr_lst.append((yr.getText(), urljoin('https://hhs.gov', yr.get('href'))))
     yr_url_dict = {}
     for yrnum, yrurl in yr_lst:
-        if int(yrnum) >= 2000: # only process cases after 2000
+        if year_lb <= int(yrnum) <= year_ub:
             yr_url_dict[yrnum] = get_dab_decisions_one_year(yrurl)
     return yr_url_dict
-
 
 def get_dab_decisions_one_year(url):
     '''
@@ -454,7 +460,8 @@ def get_dab_decisions_one_year(url):
 
 ## MAIN FLOW
 def go(alj_start=ALJ_START_PAGE, dab_start=DAB_START_PAGE, credentials='secrets.ini',
-       load_table='raw_data', save_failed=None, limit=None):
+       load_table='raw_data', save_failed=None, limit_recs=None,
+       year_lb=float('-inf'), year_ub=float('inf')):
     '''
     Generate all appeals records and load them to a PostgreSQL database.
 
@@ -466,12 +473,14 @@ def go(alj_start=ALJ_START_PAGE, dab_start=DAB_START_PAGE, credentials='secrets.
     save_failed (str or None): filepath to save CSV of appeals thaqt couldn't be uploaded to
                                the DB, if None, failed uploads list is not stored
     limit (int): limit the number of records looked at in a given year
+    year_lb (numeric): first year to grab DAB decisions from
+    year_ub (numeric): last year to grab DAB decisions from
     '''
     config = ConfigParser()
     config.read(credentials)
 
     alj_catalog = gen_alj_catalog(alj_start)
-    dab_decisions = get_dab_decisions(dab_start)
+    dab_decisions = get_dab_decisions(dab_start, year_lb, year_ub)
     total_dab_cases = sum(len(val) for key, val in dab_decisions.items())
 
     conn = pg.connect(**config['Advanced ML Database'])
@@ -484,8 +493,8 @@ def go(alj_start=ALJ_START_PAGE, dab_start=DAB_START_PAGE, credentials='secrets.
     cases_failed = 0
     print('-' * 10 + '\nStarting case processing.\n' + '-' * 10)
     for year, cases in dab_decisions.items():
-        if limit:
-            cases = cases[:limit]
+        if limit_recs:
+            cases = cases[:limit_recs]
         for url, case_info in cases:
             appeal = Appeal(year, url, case_info, alj_catalog)
             try:
@@ -511,17 +520,21 @@ def go(alj_start=ALJ_START_PAGE, dab_start=DAB_START_PAGE, credentials='secrets.
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Scrape DAB and associated ALJ cases.")
-    parser.add_argument('--alj', dest='alj_start', default=ALJ_START_PAGE, type=str,
+    parser.add_argument('--alj', dest='alj_start', default=None, type=str,
                         help='root webpage to find all the ALJ decisions')
-    parser.add_argument('--dab', dest='dab_start', default=DAB_START_PAGE, type=str,
+    parser.add_argument('--dab', dest='dab_start', default=None, type=str,
                         help='root webpage to find all the DAB decisions')
-    parser.add_argument('--creds', dest='credentials', default='secrets.ini', type=str,
+    parser.add_argument('--creds', dest='credentials', default=None, type=str,
                         help='filepath to DB credentials')
-    parser.add_argument('--table', dest='load_table', default='raw_data', type=str,
+    parser.add_argument('--table', dest='load_table', default=None, type=str,
                         help='table to load appeals data to (note: table must be whitelisted)')
     parser.add_argument('--failedcsv', dest='save_failed', default=None, type=str,
                         help='filepath to save CSV of failed uploads')
-    parser.add_argument('--limit', dest='limit', default=None, type=int,
+    parser.add_argument('--limitrecs', dest='limit_recs', default=None, type=int,
                         help='limit the number of records looked at in a given year (debugging setting)')
+    parser.add_argument('--yearlb', dest='year_ub', default=None, type=int,
+                        help='last year to grab DAB decisions from')
+    parser.add_argument('--yearub', dest='year_ub', default=None, type=int,
+                        help='last year to grab DAB decisions from')
     args = parser.parse_args()
     go(**args.__dict__)
