@@ -33,7 +33,7 @@ PDF = 0
 OLD_HTML = 1
 NEW_HTML = 2
 
-TBL_WHITELIST = ['raw_data', 'raw_data_test', 'raw_data_exp']
+TBL_WHITELIST = ['raw_data', 'raw_data_test', 'raw_data_exp', 'raw_data_new']
 
 logging.basicConfig(filename='scraper.log', level=logging.DEBUG)
 
@@ -262,7 +262,7 @@ def get_decision_format(url):
 
     Returns: int
     '''
-    if url.path.endswith('.pdf'):
+    if url.path.lower().endswith('.pdf'):
         return PDF
     elif OLD_URL_PATTERN in url.path:
         return OLD_HTML
@@ -513,28 +513,29 @@ def go(alj_start=ALJ_START_PAGE, dab_start=DAB_START_PAGE, credentials='secrets.
             cases_processed = cases_uploaded + cases_failed
             if not cases_processed % 50:
                 print(f'{cases_processed}/{total_dab_cases} cases processed ' +
-                      f'({cases_uploaded} successful, {cases_failed} failed)')
+                      f'({cases_uploaded} successfully uploaded, ' +
+                      f'{cases_failed} failed)')
     print('-' * 10 + '\nCase processing complete.\n' + '-' * 10)
     if save_failed:
         failed_csv.close()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Scrape DAB and associated ALJ cases.")
-    parser.add_argument('--alj', dest='alj_start', default=None, type=str,
+    parser.add_argument('--alj', dest='alj_start', default=ALJ_START_PAGE, type=str,
                         help='root webpage to find all the ALJ decisions')
-    parser.add_argument('--dab', dest='dab_start', default=None, type=str,
+    parser.add_argument('--dab', dest='dab_start', default=DAB_START_PAGE, type=str,
                         help='root webpage to find all the DAB decisions')
-    parser.add_argument('--creds', dest='credentials', default=None, type=str,
+    parser.add_argument('--creds', dest='credentials', default='secrets.ini', type=str,
                         help='filepath to DB credentials')
-    parser.add_argument('--table', dest='load_table', default=None, type=str,
+    parser.add_argument('--table', dest='load_table', default='raw_data', type=str,
                         help='table to load appeals data to (note: table must be whitelisted)')
     parser.add_argument('--failedcsv', dest='save_failed', default=None, type=str,
                         help='filepath to save CSV of failed uploads')
     parser.add_argument('--limitrecs', dest='limit_recs', default=None, type=int,
                         help='limit the number of records looked at in a given year (debugging setting)')
-    parser.add_argument('--yearlb', dest='year_ub', default=None, type=int,
+    parser.add_argument('--yearlb', dest='year_lb', default=float('-inf'), type=float,
                         help='last year to grab DAB decisions from')
-    parser.add_argument('--yearub', dest='year_ub', default=None, type=int,
+    parser.add_argument('--yearub', dest='year_ub', default=float('inf'), type=float,
                         help='last year to grab DAB decisions from')
     args = parser.parse_args()
     go(**args.__dict__)
