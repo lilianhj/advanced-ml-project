@@ -33,7 +33,7 @@ PDF = 0
 OLD_HTML = 1
 NEW_HTML = 2
 
-TBL_WHITELIST = ['raw_data', 'raw_data_test', 'raw_data_exp', 'raw_data_new']
+TBL_WHITELIST = ['raw_data', 'raw_data_2', 'raw_data_exp', 'raw_data_new']
 
 logging.basicConfig(filename='scraper.log', level=logging.DEBUG)
 
@@ -144,14 +144,18 @@ class Appeal:
         '''
         decision_format = get_decision_format(self.dab_url) 
         if decision_format == PDF or decision_format == OLD_HTML:
-            conclusion = re.findall(r'(?<=Conclusion|CONCLUSION).*?\.', self.dab_text) #read conclusion to the end?
-            if conclusion:
-                self.dab_outcome = conclusion[-1]
-            
+            outcome_match = r'(?<=Conclusion|CONCLUSION)(.*?)(\/s\/|JUDGE|__|$)'
+            conclusion = re.findall(outcome_match, self.dab_text)
+            text_outcome = None
+            while conclusion: # handle overlapping matches
+                text_outcome = conclusion[-1]
+                conclusion = re.findall(outcome_match, ''.join(text_outcome))
+            if text_outcome is not None:
+                self.dab_outcome = text_outcome[0]            
             else:
                 logging.warning("Unable to extract the outcome for the folloowing DAB " +
                                 f"URL: {urlunparse(self.dab_url)}\n Defaulting to the " +
-                                "first and last 500 character.")
+                                "first and last 1000 character.")
                 self.dab_outcome = self.dab_text[:1000] + ' ' + self.dab_text[-1000:]
         else:
             if not self.dab_soup:
@@ -177,10 +181,14 @@ class Appeal:
                           r'(r\W{0,1}e\W{0,1}m\W{0,1}a\W{0,1}n\W{0,1}d)|' +\
                           r'(e\W{0,1}r\W{0,1}r\W{0,1}e\W{0,1}d)|' +\
                           r'(m\W{0,1}o\W{0,1}d\W{0,1}i\W{0,1}f\W{0,1}y)|' +\
-                          r'(m\W{0,1}o\W{0,1}d\W{0,1}i\W{0,1}f\W{0,1}i\W{0,1}e\W{0,1}s)'
+                          r'(m\W{0,1}o\W{0,1}d\W{0,1}i\W{0,1}f\W{0,1}i\W{0,1}e\W{0,1}s)|' +\
+                          r'(g\W{0,1}r\W{0,1}a\W{0,1}n\W{0,1}t\W{0,1}e\W{0,1}d)' +\
+                          r'(o\W{0,1}v\W{0,1}e\W{0,1}r\W{0,1}t\W{0,1}u\W{0,1}r\W{0,1}n)'
+
         overturned = re.search(overturned_kwrd, self.dab_outcome, re.I)
         affirmed_kwrds = r'(a\W{0,1}f\W{0,1}f\W{0,1}i\W{0,1}r\W{0,1}m)|' +\
                          r'(u\W{0,1}p\W{0,1}h\W{0,1}o\W{0,1}l\W{0,1}d)|' +\
+                         r'(u\W{0,1}p\W{0,1}h\W{0,1}e\W{0,1}l\W{0,1}d)|' +\
                          r'(s\W{0,1}u\W{0,1}s\W{0,1}t\W{0,1}a\W{0,1}i\W{0,1}n)|' +\
                          r'(d\W{0,1}e\W{0,1}n\W{0,1}y)|' +\
                          r'(d\W{0,1}e\W{0,1}n\W{0,1}i\W{0,1}e\W{0,1}s)|' +\
@@ -188,14 +196,21 @@ class Appeal:
                          r'(c\W{0,1}o\W{0,1}r\W{0,1}r\W{0,1}e\W{0,1}c\W{0,1}t\W{0,1}l\W{0,1}y)|' +\
                          r'(l\W{0,1}e\W{0,1}g\W{0,1}a\W{0,1}l\W{0,1}l\W{0,1}y\W{0,2}s\W{0,1}o\W{0,1}u\W{0,1}n\W{0,1}d)|' +\
                          r'(f\W{0,1}r\W{0,1}e\W{0,1}e\W{0,2}f\W{0,1}r\W{0,1}o\W{0,1}m\W{0,2}l\W{0,1}e\W{0,1}g\W{0,1}a\W{0,1}l\W{0,2}e\W{0,1}r\W{0,1}r\W{0,1}o\W{0,1}r)|' +\
-                         r'(d\W{0,1}e\W{0,1}c\W{0,1}l\W{0,1}i\W{0,1}n\W{0,1}e)|' +\
+                         r'(d\W{0,1}e\W{0,1}c\W{0,1}l\W{0,1}i\W{0,1}n)|' +\
                          r'(d\W{0,1}i\W{0,1}d\W{0,2}n\W{0,1}o\W{0,1}t\W{0,2}e\W{0,1}r\W{0,1}r)|' +\
                          r'(n\W{0,1}o\W{0,2}n\W{0,1}e\W{0,1}e\W{0,1}d\W{0,2}t\W{0,1}o)|' +\
-                         r'(n\W{0,1}o\W{0,2}g\W{0,1}e\W{0,1}n\W{0,1}u\W{0,1}i\W{0,1}n\W{0,1}e\W{0,2}d\W{0,1}i\W{0,1}s\W{0,1}p\W{0,1}u\W{0,1}t\W{0,1}e)'
+                         r'(n\W{0,1}o\W{0,2}g\W{0,1}e\W{0,1}n\W{0,1}u\W{0,1}i\W{0,1}n\W{0,1}e\W{0,2}d\W{0,1}i\W{0,1}s\W{0,1}p\W{0,1}u\W{0,1}t\W{0,1}e)|' +\
+                         r'(n\W{0,1}o\W{0,2}d\W{0,1}i\W{0,1}s\W{0,1}p\W{0,1}u\W{0,1}t\W{0,1}e)|' +\
+                         r'(n\W{0,1}o\W{0,1}\W{0,2}e\W{0,1}r\W{0,1}r\W{0,2}o\W{0,1}r)|' +\
+                         r'(r\W{0,1}e\W{0,1}j\W{0,1}e\W{0,1}c\W{0,1}t\W{0,1}e\W{0,1}d)|' +\
+                         r'(n\W{0,1}o\W{0,2}n\W{0,1}e\W{0,1}w\W{0,2}e\W{0,1}v\W{0,1}i\W{0,1}d\W{0,1}e\W{0,1}n\W{0,1}c\W{0,1}e)|' +\
+                         r'(n\W{0,1}o\W{0,2}a\W{0,1}d\W{0,1}j\W{0,2}u\W{0,1}s\W{0,1}t\W{0,1}m\W{0,1}e\W{0,1}n\W{0,1}t)|' +\
+                         r'(p\W{0,1}r\W{0,1}o\W{0,1}p\W{0,1}e\W{0,1}r)'
+
         affirmed = re.search(affirmed_kwrds, self.dab_outcome, re.I)
         if affirmed and not overturned:
             self.dab_outcome_binary = 0
-        if overturned and not affirmed:
+        if overturned: # overturned or partially overturned
             self.dab_outcome_binary = 1
 
     def __extract_alj_id(self):
@@ -327,11 +342,12 @@ def scrape_decision_text(url):
         soup = make_soup(url)
         if not soup:
             return (None, None)
-        tables = soup.find_all("td", {"colspan": "2"})[1:]
+        tables = soup.find_all("td")[1:]
         raw_text = ''
         if tables:
             for td in tables:
                 paragraphs = td.find_all('p')
+                paragraphs += td.find_all('a', {'name': 'JUDGE'}) # helpful for getting conclusion
                 for paragraph in paragraphs:
                     raw_text += paragraph.getText()
         else:
