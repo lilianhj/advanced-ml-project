@@ -18,11 +18,6 @@ nlp.max_length = 20000000
 def connect_db():
     '''
     '''
-    host_name = 'adv-ml-db.ben-fogarty.com'
-    dbname = 'postgres'
-    port = '5432'
-    user_name = 'readerwriter'
-    pwd = '35ZH@q&hajeU'
 
     try:
         conn = ps.connect(host=host_name, database=dbname,
@@ -57,14 +52,18 @@ def light_clean(df):
     return sans_nulls_df
 
 
-def get_split_write(train_csv, test_csv, val_csv):
+def get_split_write(train_csv, val_csv, test_csv, split_yrs=(2017, 2019)):
     '''
     '''
     # get data
+    df = connect_db()
     # clean it
-    # split it by years
-    # write it out
-    
+    cleaned_df = light_clean(df)
+    # split it by years & write out
+    cleaned_df[cleaned_df['dab_year'] < split_yrs[0]].to_csv(train_csv, index=False)
+    cleaned_df[(cleaned_df['dab_year'] >= split_yrs[0]) & \
+            (cleaned_df['dab_year'] < split_yrs[1)].to_csv(val_csv, index=False)
+    cleaned_df[cleaned_df['dab_year'] >= split_yrs[1].to_csv(test_csv, index=False)
 
 
 def word_tokenize(text):
@@ -131,3 +130,6 @@ def load_dataset(path):
     examples = torch.load(path/"examples.pkl", pickle_module=dill)
     fields = torch.load(path/"fields.pkl", pickle_module=dill)
     return Dataset(examples, fields)
+
+
+def get_data
