@@ -53,7 +53,7 @@ def light_clean(df):
     return sans_nulls_df
 
 
-def get_split_write(train_csv, test_csv, val_csv, split_yrs=(2017, 2019)):
+def get_split_write(train_csv, test_csv, val_csv, sample_size, split_yrs=(2017, 2019)):
     '''
     '''
     desired_cols = ['dab_id', 'alj_id', 'alj_text', 'decision_binary', 'dab_year']
@@ -61,10 +61,15 @@ def get_split_write(train_csv, test_csv, val_csv, split_yrs=(2017, 2019)):
     df = connect_db()
     # clean it
     cleaned_df = light_clean(df)
+    if not sample_size:
+        use_df = cleaned_df
+    else:
+        use_df = cleaned_df.sample(sample_size, random_state=1312)
     # split it by years & write out
-    cleaned_df[cleaned_df['dab_year'] < split_yrs[0]][desired_cols].to_csv(train_csv, index=False)
-    cleaned_df[(cleaned_df['dab_year'] >= split_yrs[0]) & (cleaned_df['dab_year'] < split_yrs[1])][desired_cols].to_csv(val_csv, index=False)
-    cleaned_df[cleaned_df['dab_year'] >= split_yrs[1]][desired_cols].to_csv(test_csv, index=False)
+    use_df[use_df['dab_year'] < split_yrs[0]][desired_cols].to_csv(train_csv, index=False)
+    use_df[(use_df['dab_year'] >= split_yrs[0]) & \
+        (use_df['dab_year'] < split_yrs[1])][desired_cols].to_csv(val_csv, index=False)
+    use_df[use_df['dab_year'] >= split_yrs[1]][desired_cols].to_csv(test_csv, index=False)
 
 
 def word_tokenize(text):
@@ -115,43 +120,27 @@ def make_dataset(train_csv, val_csv, test_csv):
     return train, test, val, TEXT, LABEL
 
 
-def other_shit(train, val, TEXT):
-    TEXT.build_vocab(train, val)
-    return TEXT
-
-# from this 
-# https://stackoverflow.com/questions/53421999/how-to-save-torchtext-dataset
-def save_dataset(dataset, path):
-    if type(dataset) == torchtext.data.dataset.TabularDataset:
-        if not isinstance(path, Path):
-                path = Path(path)
-                path.mkdir(parents=True, exist_ok=True)
-        torch.save(dataset.examples, path/"examples.pkl", pickle_module=dill)
-        torch.save(dataset.fields, path/"fields.pkl", pickle_module=dill)
-    if type(dataset) == torchtext.data.field.Field:
-        with open(path, 'wb') as f: 
-            dill.dump(dataset, f) 
-
-
-def load_dataset(path):
-    if path in ['train.pkl', 'test.pkl', 'val.pkl']:
-        if not isinstance(path, Path):
-            path = Path(path)
-        examples = torch.load(path/"examples.pkl", pickle_module=dill)
-        fields = torch.load(path/"fields.pkl", pickle_module=dill)
-        return Dataset(examples, fields)
-    if path in ['text.pkl', 'label.pkl']:
-        with open(path, 'rb') as f:
-            return dill.load(f)
-
-
-PKL_PATHS = ['train.pkl', 'test.pkl', 'val.pkl', 'text.pkl', 'label.pkl']
-
-def get_data(train_csv, val_csv, test_csv, pkl_files=PKL_PATHS):
+def get_data(train_csv, val_csv, test_csv, sample_size):
     '''
+    Grabs all data from db, cleans and splits data into test/train/validation,
+    saves these sets as individual csvs (needed b/c torchtext), then reads in
+    csvs, tokenizes, normalizes data and converts into TabularDataset objs
+    and Field objs
+
+    Inputs:
+        train_csv(str): desired filename for training set csv
+        val_csv(str): desired filename for validation set csv
+        test_csv(str): desired filename for testing set csv
+        sample_size(int): desired sample size for testing model
+                or None for all obs to be utilized
+    
+    Outputs:
+        train: TabularDataset
+        test: TabularDataset
+        val: TabularDataset
+        TEXT: torchtext Field obj
+        LABEL: torchtext Field obj
     '''
-    get_split_write(train_csv, val_csv, test_csv, split_yrs=(2017, 2019))
+    get_split_write(train_csv, val_csv, test_csv, sample_size, split_yrs=(2017, 2019))
     train, test, val, TEXT, LABEL = make_dataset(train_csv, val_csv, test_csv)
-    for data in zip([train, test, val, TEXT, LABEL], pkl_files):
-        save_dataset(data[0], data[1])
     return train, test, val, TEXT, LABEL
