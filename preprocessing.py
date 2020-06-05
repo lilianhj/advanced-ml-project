@@ -4,7 +4,7 @@ import pandas as pd
 import spacy
 import torch
 import torchtext
-from torchtext.data import Field, TabularDataset, Dataset
+from torchtext.data import Field, LabelField, TabularDataset, Dataset
 import nltk
 import scipy
 import psycopg2 as ps
@@ -110,7 +110,7 @@ def make_dataset(train_csv, val_csv, test_csv):
     '''
     TEXT = Field(sequential=True, tokenize=word_tokenize,
                                  preprocessing=normalize_tokens)
-    LABEL = Field(sequential=False)
+    LABEL = LabelField(dtype=torch.float)
     data_fields = [('dab_id', None), ('alj_id', None), ('alj_text', TEXT),
                    ('decision_binary', LABEL), ('dab_year', None)]
     train, val, test = TabularDataset.splits(path='', train=train_csv,
