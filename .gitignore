@@ -143,3 +143,4 @@ cython_debug/
 *.code-workspace
 secrets.ini
 *.pdf
+connection.py
