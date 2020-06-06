@@ -147,7 +147,7 @@ def make_dataset(train_csv, val_csv, test_csv):
     return train, test, val, TEXT, LABEL
 
 
-def get_data(train_csv, val_csv, test_csv, sample_size):
+def get_data(train_csv, val_csv, test_csv, sample_size=None):
     '''
     Grabs all data from db, cleans and splits data into test/train/validation,
     saves these sets as individual csvs (needed b/c torchtext), then reads in
