@@ -19,6 +19,16 @@ def connect_db(host_name=connection.host_name, dbname=connection.dbname,
                user_name=connection.user_name, pwd=connection.pwd,
                port=connection.port):
     '''
+    Connects to database and pulls all cases into a pandas df
+
+    Inputs:
+        host_name(str): name of host for db
+        dbname(str): name of db
+        user_name(str): db username
+        pwd(str): password for db
+        port(str): port for db
+
+    Outputs: pandas dataframe of cases
     '''
     try:
         conn = ps.connect(host=host_name, database=dbname,
@@ -46,15 +56,31 @@ def connect_db(host_name=connection.host_name, dbname=connection.dbname,
 
 def light_clean(df):
     '''
+    Lightly cleans the dataframe by removing obs with null values for
+    necessary columns and cutting obs with alj_text greater than 1000000 words
+
+    Inputs:
+        df: a pandas dataframe
+
+    Output:
     '''
-    sans_nulls_df = df[(df['alj_text'].notnull()) & (df['decision_binary'].notnull())]
-    sans_nulls_df['alj_text'] = sans_nulls_df['alj_text']. \
-                                    apply(lambda x: x[0: 1000000])
+    sans_nulls_df = df.loc[(df['alj_text'].notnull()) & (df['decision_binary'].notnull()),]
+    sans_nulls_df['alj_text'] = sans_nulls_df['alj_text'].str.slice(0, 1000000)
     return sans_nulls_df
 
 
 def get_split_write(train_csv, test_csv, val_csv, sample_size, split_yrs=(2017, 2019)):
     '''
+
+    Inputs:
+        train_csv(str):
+        test_csv(str):
+        val_csv(str):
+        sample_size(int):
+        split_yrs(tup):
+    
+
+    Output:
     '''
     desired_cols = ['dab_id', 'alj_id', 'alj_text', 'decision_binary', 'dab_year']
     # get data
