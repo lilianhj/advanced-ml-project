@@ -144,3 +144,5 @@ cython_debug/
 secrets.ini
 *.pdf
 connection.py
+.vector_cache/
+Law2Vec*
