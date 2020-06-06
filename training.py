@@ -118,7 +118,8 @@ class TrainingModule( ):
         for epoch in range(self.epochs):
             self.train_epoch(train_iterator)
             dev_loss, dev_acc, dev_prec, dev_rec = self.evaluate(dev_iterator)
-            print(f"Epoch {epoch}: Dev Accuracy: {dev_acc} Dev Precision: {dev_prec} Dev Recall: {dev_rec} Dev Loss:{dev_loss}")
+            print(f"Epoch {epoch}: Dev Accuracy: {dev_acc:.4f}; Dev Precision:",
+                  f"{dev_prec:.4f}; Dev Recall: {dev_rec:.4f}; Dev Loss:{dev_loss:.4f}")
             if dev_acc > max(dev_accs) or best_model_acc is None:
                 best_model_acc = ModelResults(copy.deepcopy(self.model), dev_acc, dev_prec, dev_rec)
             if dev_prec > max(dev_precs) or best_model_prec is None:
