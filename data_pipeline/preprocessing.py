@@ -1,19 +1,17 @@
-from pathlib import Path
-import numpy as np
+'''
+Functions to process the raw data to be ready for Pytorch
+
+May/June 2020
+'''
 import pandas as pd
 import spacy
 import torch
-import torchtext
-from torchtext.data import Field, LabelField, TabularDataset, Dataset
-import nltk
-import scipy
+from torchtext.data import Field, LabelField, TabularDataset
 import psycopg2 as ps
-import dill
-
 import db_connection
 
-nlp = spacy.load("en")
-nlp.max_length = 20000000
+NLP = spacy.load("en")
+NLP.max_length = 20000000
 
 
 def connect_db(host_name=db_connection.host_name, dbname=db_connection.dbname,
@@ -33,118 +31,163 @@ def connect_db(host_name=db_connection.host_name, dbname=db_connection.dbname,
     '''
     try:
         conn = ps.connect(host=host_name, database=dbname,
-                        user=user_name, password=pwd, port=port)
-    except ps.OperationalError as e:
-        raise e
+                          user=user_name, password=pwd, port=port)
+    except ps.OperationalError as error:
+        raise error
     else:
         print('Connected!')
     cur = conn.cursor()
-    cur.execute(""" 
+    cur.execute("""
                 SELECT * FROM raw_data; 
                 """)
     data = cur.fetchall()
-    colnames = [desc[0] for desc in cur.description] 
+    colnames = [desc[0] for desc in cur.description]
     conn.commit()
 
     #create the pandas dataframe
-    df = pd.DataFrame(data)
-    df.columns = colnames
+    all_df = pd.DataFrame(data)
+    all_df.columns = colnames
 
     #close the connection
     cur.close()
-    return df
+    return all_df
 
 
-def light_clean(df):
+def light_clean(raw_df):
     '''
     Lightly cleans the dataframe by removing obs with null values for
     necessary columns and cutting obs with alj_text greater than 1000000 words
 
     Inputs:
-        df: a pandas dataframe
+        raw_df: a pandas dataframe
 
     Output:
     '''
-    sans_nulls_df = df.loc[(df['alj_text'].notnull()) & (df['decision_binary'].notnull()),]
+    sans_nulls_df = raw_df.loc[(raw_df['alj_text'].notnull()) & \
+                               (raw_df['decision_binary'].notnull()),]
     sans_nulls_df['alj_text'] = sans_nulls_df['alj_text'].str.slice(0, 1000000)
     return sans_nulls_df
 
 
-def get_split_write(train_csv, test_csv, val_csv, sample_size, split_yrs=(2017, 2019)):
+def get_split_write(train_csv, test_csv, val_csv, sample_size,
+                    split_yrs=(2017, 2019)):
     '''
+    Grabs data from db, cleans relevant cols, splits data into train/val/test
+    datasets and writes these to csvs
 
     Inputs:
-        train_csv(str):
-        test_csv(str):
-        val_csv(str):
-        sample_size(int):
-        split_yrs(tup):
-    
+        train_csv(str): desired name of csv for training data
+        test_csv(str): desired name of csv for testing data
+        val_csv(str): desired name of csv for validation data
+        sample_size(int): number of obs to grab if testing and want a
+            small sample for speed
+        split_yrs(tup): tuple of years that divide dataset from training
+            to validation to testing
 
-    Output:
+    Output: None (saves three csvs of train/val/test data)
     '''
-    desired_cols = ['dab_id', 'alj_id', 'alj_text', 'decision_binary', 'dab_year']
+    desired_cols = ['dab_id', 'alj_id', 'alj_text', 'decision_binary',
+                    'dab_year']
     # get data
-    df = connect_db()
+    raw_df = connect_db()
     # clean it
-    cleaned_df = light_clean(df)
+    cleaned_df = light_clean(raw_df)
     if not sample_size:
         use_df = cleaned_df
     else:
         use_df = cleaned_df.sample(sample_size, random_state=1312)
     # split it by years & write out
-    use_df[use_df['dab_year'] < split_yrs[0]][desired_cols].to_csv(train_csv, index=False)
+    use_df[use_df['dab_year'] < split_yrs[0]][desired_cols].to_csv(train_csv,
+                                                                   index=False)
     use_df[(use_df['dab_year'] >= split_yrs[0]) & \
-        (use_df['dab_year'] < split_yrs[1])][desired_cols].to_csv(val_csv, index=False)
-    use_df[use_df['dab_year'] >= split_yrs[1]][desired_cols].to_csv(test_csv, index=False)
+           (use_df['dab_year'] < split_yrs[1])][desired_cols]. \
+               to_csv(val_csv, index=False)
+    use_df[use_df['dab_year'] >= split_yrs[1]][desired_cols].to_csv(test_csv,
+                                                                    index=False)
 
 
 def word_tokenize(text):
+    '''
+    Converts text to nlp obj, tokenizes text and removes punctuation
+
+    Input:
+        text: a string of text to be tokenized
+
+    Output:
+        tokenized: a list of nlp word tokens
+    '''
     tokenized = []
     # pass word list through language model.
-    doc = nlp(text)
+    doc = NLP(text)
     for token in doc:
         if not token.is_punct and len(token.text.strip()) > 0:
             tokenized.append(token.text)
     return tokenized
 
 
-def normalize_tokens(word_list, extra_stop=[]):
-    #We can use a generator here as we just need to iterate over it
+def normalize_tokens(word_list, extra_stop=None):
+    '''
+    Normalizes word tokens through stemming and lemmatizing tokens,
+    removing any stop words as well
+
+    Inputs:
+        word_list: list of tokenized words
+        extra_stop: list of any extra stop words to be added to default
+            stop word list
+
+    Output:
+        normalized: a list of normalized tokens
+    '''
     normalized = []
-    if type(word_list) == list and len(word_list) == 1:
+    if isinstance(word_list, list) and len(word_list) == 1:
         word_list = word_list[0]
 
-    if type(word_list) == list:
-        word_list = ' '.join([str(elem) for elem in word_list]) 
-    doc = nlp(word_list.lower())
+    if isinstance(word_list, list):
+        word_list = ' '.join([str(elem) for elem in word_list])
+    doc = NLP(word_list.lower())
     # add the property of stop word to words considered as stop words
-    if len(extra_stop) > 0:
+    if extra_stop:
         for stopword in extra_stop:
-            lexeme = nlp.vocab[stopword]
+            lexeme = NLP.vocab[stopword]
             lexeme.is_stop = True
-    for w in doc:
+    for word in doc:
         # if it's not a stop word or punctuation mark, add it to our article
-        if w.text != '\n' and not w.is_stop and not w.is_punct \
-            and not w.like_num and len(w.text.strip()) > 0:
+        if word.text != '\n' and not word.is_stop and not word.is_punct \
+            and not word.like_num and len(word.text.strip()) > 0:
             # we add the lematized version of the word
-            normalized.append(str(w.lemma_))
+            normalized.append(str(word.lemma_))
     return normalized
 
 
 def make_dataset(train_csv, val_csv, test_csv):
     '''
+    Generates the training, validation and testing datasets as torchtext
+    objects for easy incorporation with Pytorch (cleaning them in the process)
+
+    Inputs:
+        train_csv(str): name of training data csv
+        val_csv(str): name of validation data csv
+        test_csv(str): name of testing data csv
+
+    Outputs:
+        train: tabular dataset obj representing the training data
+        test: tabular dataset obj representing the testing data
+        val: tabular dataset obj representing the validation data
+        text: torchtext field obj representing how text should be
+            processed and stored
+        label: torchtext labelfield obj representing labels should be
+            processed and stored
     '''
-    TEXT = Field(sequential=True, tokenize=word_tokenize,
-                                 preprocessing=normalize_tokens)
-    LABEL = LabelField(dtype=torch.float)
-    data_fields = [('dab_id', None), ('alj_id', None), ('alj_text', TEXT),
-                   ('decision_binary', LABEL), ('dab_year', None)]
+    text = Field(sequential=True, tokenize=word_tokenize,
+                 preprocessing=normalize_tokens)
+    label = LabelField(dtype=torch.float)
+    data_fields = [('dab_id', None), ('alj_id', None), ('alj_text', text),
+                   ('decision_binary', label), ('dab_year', None)]
     train, val, test = TabularDataset.splits(path='', train=train_csv,
                                              validation=val_csv, test=test_csv,
                                              format='csv', fields=data_fields,
                                              skip_header=True)
-    return train, test, val, TEXT, LABEL
+    return train, test, val, text, label
 
 
 def get_data(train_csv, val_csv, test_csv, sample_size):
@@ -160,14 +203,16 @@ def get_data(train_csv, val_csv, test_csv, sample_size):
         test_csv(str): desired filename for testing set csv
         sample_size(int): desired sample size for testing model
                 or None for all obs to be utilized
-    
+
     Outputs:
-        train: TabularDataset
-        test: TabularDataset
-        val: TabularDataset
-        TEXT: torchtext Field obj
-        LABEL: torchtext Field obj
+        train: tabular dataset obj representing the training data
+        test: tabular dataset obj representing the testing data
+        val: tabular dataset obj representing the validation data
+        text: torchtext field obj representing how text should be
+            processed and stored
+        label: torchtext labelfield obj representing labels should be
+            processed and stored
     '''
-    get_split_write(train_csv, val_csv, test_csv, sample_size, split_yrs=(2017, 2019))
-    train, test, val, TEXT, LABEL = make_dataset(train_csv, val_csv, test_csv)
-    return train, test, val, TEXT, LABEL
+    get_split_write(train_csv, val_csv, test_csv, sample_size, (2017, 2019))
+    train, test, val, text, label = make_dataset(train_csv, val_csv, test_csv)
+    return train, test, val, text, label
