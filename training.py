@@ -1,10 +1,16 @@
-import random
+from collections import namedtuple
 import copy
+import random
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torchtext import data
+
+ModelResults = namedtuple('ModelResults',
+                          ['model', 'accuracy', 'precision', 'recall'])
+
 
 def binary_accuracy(preds, y):
     """
@@ -40,7 +46,7 @@ def binary_recall(preds, y):
     return recall
 
 
-class Training_module( ):
+class TrainingModule( ):
 
     def __init__(self, model, lr, pos_weight, use_cuda, num_epochs):
         self.model = model
@@ -114,15 +120,17 @@ class Training_module( ):
             dev_loss, dev_acc, dev_prec, dev_rec = self.evaluate(dev_iterator)
             print(f"Epoch {epoch}: Dev Accuracy: {dev_acc} Dev Precision: {dev_prec} Dev Recall: {dev_rec} Dev Loss:{dev_loss}")
             if dev_acc > max(dev_accs) or best_model_acc is None:
-                best_model_acc = copy.deepcopy(self)
+                best_model_acc = ModelResults(copy.deepcopy(self.model), dev_acc, dev_prec, dev_rec)
             if dev_prec > max(dev_precs) or best_model_prec is None:
-                best_model_prec = copy.deepcopy(self)
+                best_model_prec = ModelResults(copy.deepcopy(self.model), dev_acc, dev_prec, dev_rec)
             if dev_rec > max(dev_recs) or best_model_rec is None:
-                best_model_rec = copy.deepcopy(self)
+                best_model_rec = ModelResults(copy.deepcopy(self.model), dev_acc, dev_prec, dev_rec)
             dev_accs.append(dev_acc)
             dev_precs.append(dev_prec)
             dev_recs.append(dev_rec)
-        return best_model_acc.model, best_model_prec.model, best_model_rec.model
+        return {'accuracy': best_model_acc,
+                'precision': best_model_prec,
+                'recall': best_model_rec}
                 
     def evaluate(self, iterator):
         '''
