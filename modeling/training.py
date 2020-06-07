@@ -12,41 +12,18 @@ ModelResults = namedtuple('ModelResults',
                           ['model', 'accuracy', 'precision', 'recall'])
 
 
-def binary_accuracy(preds, y):
-    """
-    Return accuracy per batch
-    """
-
-    #round predictions to the closest integer
-    rounded_preds = torch.round(torch.sigmoid(preds))
-    correct = (rounded_preds == y).float() #convert into float for division 
-    acc = correct.sum() / len(correct)
-    return acc
-
-
-def binary_precision(preds, y):
+def prediction_stats(preds, y)
     '''
-    Return precision per batch
+    Return true/false positives/negatives per patch
     '''
-    rounded_preds = torch.round(torch.sigmoid(preds))
     true_pos = ((rounded_preds == y) & (rounded_preds == 1)).float()
-    total_pos = (rounded_preds == 1).float()
-    prec = true_pos.sum() / total_pos.sum()
-    return prec
+    false_pos ((rounded_preds != y) & (rounded_preds == 1)).float()
+    true_neg = ((rounded_preds == y) & (rounded_preds == 0)).float()
+    false_neg = ((rounded_preds != y) & (rounded_preds == 0)).float()
+    
+    return true_pos.item(), false_pos.item(), true_neg.item(), false_neg.item()
 
-
-def binary_recall(preds, y):
-    '''
-    Return recall per batch
-    '''
-    rounded_preds = torch.round(torch.sigmoid(preds))
-    true_pos = ((rounded_preds == y) & (rounded_preds == 1)).float()
-    all_true_pos = (y == 1).float()
-    recall = true_pos.sum() / all_true_pos.sum()
-    return recall
-
-
-class TrainingModule( ):
+class TrainingModule():
 
     def __init__(self, model, lr, pos_weight, use_cuda, num_epochs):
         self.model = model
@@ -138,9 +115,10 @@ class TrainingModule( ):
         Evaluate the performance of the model on the given examples.
         '''
         epoch_loss = 0
-        epoch_acc = 0
-        epoch_prec = 0
-        epoch_rec = 0
+        epoch_tp = 0
+        epoch_fp = 0
+        epoch_tn = 0
+        epoch_fn = 0
         self.model.eval()
     
         with torch.no_grad():
@@ -160,8 +138,16 @@ class TrainingModule( ):
                 recall = binary_recall(predictions, target)
         
                 epoch_loss += loss.item()
-                epoch_acc += accuracy.item()
-                epoch_prec += precision.item()
-                epoch_rec += recall.item()
+            
+                batch_tp, batch_fp, batch_tn, batch_fn = prediction_stats(predictions, target)
+                epoch_tp += batch_tp
+                epoch_fp += batch_fp
+                epoch_tn += batch_tn
+                epoch_fn += batch_fn
         
-        return epoch_loss / len(iterator), epoch_acc / len(iterator), epoch_prec / len(iterator), epoch_rec / len(iterator)
+        loss = epoch_loss / (epoch_tp + epoch_tn + epoch_fp + epoch_fn)
+        acc = (epoch_tp + epoch_tn) / (epoch_tp + epoch_tn + epoch_fp + epoch_fn)
+        prec = (epoch_tp) / (epoch_tp + epoch_fp)
+        rec = (epoch_tp) / (epoch_tp + epoch_fn)
+        
+        return loss, acc, prec, rec
