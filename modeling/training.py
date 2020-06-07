@@ -16,10 +16,11 @@ def prediction_stats(preds, y):
     '''
     Return true/false positives/negatives per patch
     '''
-    true_pos = ((rounded_preds == y) & (rounded_preds == 1)).float()
-    false_pos ((rounded_preds != y) & (rounded_preds == 1)).float()
-    true_neg = ((rounded_preds == y) & (rounded_preds == 0)).float()
-    false_neg = ((rounded_preds != y) & (rounded_preds == 0)).float()
+    rounded_preds = torch.round(torch.sigmoid(preds))
+    true_pos = ((rounded_preds == y) & (rounded_preds == 1)).sum()
+    false_pos = ((rounded_preds != y) & (rounded_preds == 1)).sum()
+    true_neg = ((rounded_preds == y) & (rounded_preds == 0)).sum()
+    false_neg = ((rounded_preds != y) & (rounded_preds == 0)).sum()
     
     return true_pos.item(), false_pos.item(), true_neg.item(), false_neg.item()
 
@@ -48,9 +49,10 @@ class TrainingModule():
         5. Execute one step of the optimizer to update the model paramters.
         '''
         epoch_loss = 0
-        epoch_acc = 0
-        epoch_prec = 0
-        epoch_rec = 0
+        epoch_tp = 0
+        epoch_fp = 0
+        epoch_tn = 0
+        epoch_fn = 0
         self.model.train()
     
         for batch in iterator:
@@ -67,18 +69,24 @@ class TrainingModule():
 
             predictions = self.model.forward(text).squeeze()
             loss = self.loss_fn(predictions, target)
-            accuracy = binary_accuracy(predictions, target)
-            precision = binary_precision(predictions, target)
-            recall = binary_recall(predictions, target)
-        
+
             loss.backward()
             self.optimizer.step()
+            
             epoch_loss += loss.item()
-            epoch_acc += accuracy.item()
-            epoch_prec += precision.item()
-            epoch_rec += recall.item()
+            
+            batch_tp, batch_fp, batch_tn, batch_fn = prediction_stats(predictions, target)
+            epoch_tp += batch_tp
+            epoch_fp += batch_fp
+            epoch_tn += batch_tn
+            epoch_fn += batch_fn
         
-        return epoch_loss / len(iterator), epoch_acc / len(iterator), epoch_prec / len(iterator), epoch_rec / len(iterator)
+        loss = epoch_loss / (epoch_tp + epoch_tn + epoch_fp + epoch_fn)
+        acc = (epoch_tp + epoch_tn) / (epoch_tp + epoch_tn + epoch_fp + epoch_fn)
+        prec = ((epoch_tp) / (epoch_tp + epoch_fp) if (epoch_tp + epoch_fp) > 0 else float('nan'))
+        rec = ((epoch_tp) / (epoch_tp + epoch_fn) if (epoch_tp + epoch_fn) > 0 else float('nan')) 
+        
+        return loss, acc, prec, rec
 
     
     def train_model(self, train_iterator, dev_iterator):
@@ -133,9 +141,6 @@ class TrainingModule():
                 
                 predictions = self.model.forward(text).squeeze()
                 loss = self.loss_fn(predictions, target)
-                accuracy = binary_accuracy(predictions, target)
-                precision = binary_precision(predictions, target)
-                recall = binary_recall(predictions, target)
         
                 epoch_loss += loss.item()
             
@@ -147,7 +152,7 @@ class TrainingModule():
         
         loss = epoch_loss / (epoch_tp + epoch_tn + epoch_fp + epoch_fn)
         acc = (epoch_tp + epoch_tn) / (epoch_tp + epoch_tn + epoch_fp + epoch_fn)
-        prec = (epoch_tp) / (epoch_tp + epoch_fp)
-        rec = (epoch_tp) / (epoch_tp + epoch_fn)
+        prec = ((epoch_tp) / (epoch_tp + epoch_fp) if (epoch_tp + epoch_fp) > 0 else float('nan'))
+        rec = ((epoch_tp) / (epoch_tp + epoch_fn) if (epoch_tp + epoch_fn) > 0 else float('nan')) 
         
         return loss, acc, prec, rec
