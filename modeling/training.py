@@ -12,7 +12,7 @@ ModelResults = namedtuple('ModelResults',
                           ['model', 'accuracy', 'precision', 'recall'])
 
 
-def prediction_stats(preds, y)
+def prediction_stats(preds, y):
     '''
     Return true/false positives/negatives per patch
     '''
