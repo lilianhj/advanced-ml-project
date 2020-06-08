@@ -147,3 +147,4 @@ connection.py
 .vector_cache/
 Law2Vec*
 data_pipeline/db_connection.py
+.vscode/settings.json
