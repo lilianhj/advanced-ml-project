@@ -2,7 +2,7 @@
 Functions to scrape and parse HHS DAB appeals and corresponding original case information,
 then load these appeals to a PostgreSQL database.
 
-April 2020 
+June 2020 
 '''
 
 import argparse
