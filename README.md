@@ -105,6 +105,7 @@ Our code is organized into different directories as follows:
 |                                     our identified best model (1586 lines,
 |                                     written for this project)
 |
-| ec2_setup.sh: shell script used to set-up AWS EC2 instance for training models (19 lines, written for this project)
+| ec2_setup.sh: shell script used to set-up AWS EC2 instance for training models
+                (19 lines, written for this project)
 | requirements.txt: model requirements
 ```
