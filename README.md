@@ -47,7 +47,7 @@ virtual machine:
 jupyter notebook --no-browser
 ```
 
-Lastly, in a separate `screen` session, we fun the following command to allow
+Lastly, in a separate `screen` session, we run the following command to allow
 for remote access to our Jupyter notebooks server:
 
 ```
@@ -97,7 +97,7 @@ Our code is organized into different directories as follows:
 |                 HW2, partly written for this project)
 |
 |--- /results/: CSV datasets on model performance results, saved models
-|               identified as the best modeling notebook, and analysis of model
+|               identified as the best, and analysis of model
 |               performance
 |--- README.md: describes the naming conventions of saved models/results in this
 |               directory
