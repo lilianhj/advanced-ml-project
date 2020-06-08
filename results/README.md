@@ -4,7 +4,7 @@ This directory contains saved results and models from running the notebooks
 in `../modeling/` and analysis of these results. In particular, the results
 and saved models are titled as follows $PREFIX_$SUFFIX. The prefixes indicate:
 
-- `RNNCUSTOM`: results/models from fitting RNN-type models without pre-trained
+- `RNNCustom`: results/models from fitting RNN-type models without pre-trained
 embeddings
 
 - `RNNLaw2Vec`: results/models from fitting RNN-type models with the Law2Vec
