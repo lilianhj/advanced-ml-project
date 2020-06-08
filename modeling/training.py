@@ -59,8 +59,6 @@ class TrainingModule():
             model = model.cuda()
         self.epochs = num_epochs
 
-        ##YOUR CODE HERE##
-        # Choose an optimizer. optim.Adam is a popular choice
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
