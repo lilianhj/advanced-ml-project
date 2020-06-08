@@ -61,22 +61,27 @@ Our code is organized into different directories as follows:
 ```
 | /data_exploration/: exploratory analysis of our text data
 |--- textpreprocessing.ipynb: exploratory data analysis of our raw text (2061 lines, written for this project)
+|
 | /data_pipeline/: scraping and extracting text from the United States Department of Health and Human Services website
 |--- download_data.py: scraper for extracting text from the HHS DAB website (552 lines, written for this project)
 |--- preprocessing.py: processing the raw text for use in PyTorch modeling (218 lines, written for this project)
 |--- db_connection.py.example: a template for the database connection information (5 lines, written for this project)
+|
 | /db_scripts/: scripts for setting up our Postgres database to store downloaded cases
 |--- create_raw_table.sql: database table schema (12 lines, written for this project)
 |--- /embeds/: downloading pre-trained embeddings for use in modeling
 |--- get_embeds.sh: shell script to download pre-trained word embeddings (2 lines, written for this project)
+|
 | /modeling/: using PyTorch to predict appeal outcomes from decision text
 |--- SimpleNNs.ipynb: using simple neural networks with custom word embeddings (3773 lines, partly from CAPP 30255 HW2, partly written for this project)
 |--- SimpleNNs-Law2Vec.ipynb: using simple neural networks with pre-trained word embeddings (1243 lines, partly from CAPP 30255 HW2, partly written for this project)
 |--- RNNs.ipynb: using RNNs and LSTMs with custom word embeddings (3953 lines, partly from CAPP 30255 HW3, partly written for this project)
 |--- RNNs-Law2Vec.ipynb: using RNNs and LSTMs with pre-trained word embeddings (1309 lines, partly from CAPP 30255 HW3, partly written for this project)
 |--- training.py: defining a general TrainingModule class and functions to calculate model performance (192 lines, partly from CAPP 30255 HW2, partly written for this project)
+|
 |--- /results/: CSV datasets on model performance results, saved models identified as the best modeling notebook, and analysis of model performance
 |--- model_performance_results.ipynb: analyzing model performance and testing our identified best model (1586 lines, written for this project)
+|
 | ec2_setup.sh: shell script used to set-up AWS EC2 instance for training models (19 lines, written for this project)
 | requirements.txt: model requirements
 ```
