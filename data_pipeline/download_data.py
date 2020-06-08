@@ -2,14 +2,12 @@
 Functions to scrape and parse HHS DAB appeals and corresponding original case information,
 then load these appeals to a PostgreSQL database.
 
-April 2020  
+April 2020 
 '''
 
 import argparse
 from collections import namedtuple
-from configparser import ConfigParser
 import csv
-import io
 import logging
 import os
 import re
@@ -20,6 +18,8 @@ import psycopg2 as pg
 import psycopg2.sql as sql
 import requests
 import textract
+
+import db_connection as db
 
 
 ALJ_START_PAGE = 'https://www.hhs.gov/about/agencies/dab/decisions/alj-decisions/' +\
@@ -142,7 +142,7 @@ class Appeal:
 
         Updates: self.dab_outcome, if a text outcome is successfully found
         '''
-        decision_format = get_decision_format(self.dab_url) 
+        decision_format = get_decision_format(self.dab_url)
         if decision_format == PDF or decision_format == OLD_HTML:
             outcome_match = r'(?<=Conclusion|CONCLUSION)(.*?)(\/s\/|JUDGE|__|$)'
             conclusion = re.findall(outcome_match, self.dab_text)
@@ -151,7 +151,7 @@ class Appeal:
                 text_outcome = conclusion[-1]
                 conclusion = re.findall(outcome_match, ''.join(text_outcome))
             if text_outcome is not None:
-                self.dab_outcome = text_outcome[0]            
+                self.dab_outcome = text_outcome[0]
             else:
                 logging.warning("Unable to extract the outcome for the folloowing DAB " +
                                 f"URL: {urlunparse(self.dab_url)}\n Defaulting to the " +
@@ -475,7 +475,7 @@ def get_dab_decisions_one_year(url):
 
 
 ## MAIN FLOW
-def go(alj_start=ALJ_START_PAGE, dab_start=DAB_START_PAGE, credentials='secrets.ini',
+def go(alj_start=ALJ_START_PAGE, dab_start=DAB_START_PAGE,
        load_table='raw_data', save_failed=None, limit_recs=None,
        year_lb=float('-inf'), year_ub=float('inf')):
     '''
@@ -484,7 +484,6 @@ def go(alj_start=ALJ_START_PAGE, dab_start=DAB_START_PAGE, credentials='secrets.
     Inputs:
     alj_start (str): root webpage to find all the ALJ decisions
     dab_start (str): root webpage to find all the DAB decisions
-    credentials (str): filepath to DB credentials
     load_table (str): name of table to load records to
     save_failed (str or None): filepath to save CSV of appeals thaqt couldn't be uploaded to
                                the DB, if None, failed uploads list is not stored
@@ -492,14 +491,12 @@ def go(alj_start=ALJ_START_PAGE, dab_start=DAB_START_PAGE, credentials='secrets.
     year_lb (numeric): first year to grab DAB decisions from
     year_ub (numeric): last year to grab DAB decisions from
     '''
-    config = ConfigParser()
-    config.read(credentials)
-
     alj_catalog = gen_alj_catalog(alj_start)
     dab_decisions = get_dab_decisions(dab_start, year_lb, year_ub)
     total_dab_cases = sum(len(val) for key, val in dab_decisions.items())
 
-    conn = pg.connect(**config['Advanced ML Database'])
+    conn = pg.connect(dbname=db.dbname, user=db.user_name, password=db.pwd,
+                      host=db.host_name, port=db.port)
     cur = conn.cursor()
     if save_failed:
         failed_csv = open(save_failed, 'w')
@@ -541,8 +538,6 @@ if __name__ == '__main__':
                         help='root webpage to find all the ALJ decisions')
     parser.add_argument('--dab', dest='dab_start', default=DAB_START_PAGE, type=str,
                         help='root webpage to find all the DAB decisions')
-    parser.add_argument('--creds', dest='credentials', default='secrets.ini', type=str,
-                        help='filepath to DB credentials')
     parser.add_argument('--table', dest='load_table', default='raw_data', type=str,
                         help='table to load appeals data to (note: table must be whitelisted)')
     parser.add_argument('--failedcsv', dest='save_failed', default=None, type=str,
