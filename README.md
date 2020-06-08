@@ -96,7 +96,7 @@ Our code is organized into different directories as follows:
 |                 calculate model performance (192 lines, partly from CAPP 30255
 |                 HW2, partly written for this project)
 |
-|--- /results/: CSV datasets on model performance results, saved models
+| /results/: CSV datasets on model performance results, saved models
 |               identified as the best, and analysis of model
 |               performance
 |--- README.md: describes the naming conventions of saved models/results in this
