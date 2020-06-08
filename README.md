@@ -35,7 +35,7 @@ ngroktoken=<NGROK SECRET AUTHORIZATION TOKEN>
 sudo sh ec2_setup.sh
 ```
 
-This command, cloned our repo, installed project dependencies, installed and
+This command cloned our repo, installed project dependencies, installed and
 configured ngrok (a lightweight program allowing for easy remote access to our
 Jupyter notebooks server), and configured our Jupyter notebooks server.
 
