@@ -33,7 +33,7 @@ jsonschema==3.2.0
 jupyter-client==6.1.3
 jupyter-core==4.6.3
 jupyter-http-over-ws==0.0.8
-lxml==4.5.1
+lxml==4.6.2
 MarkupSafe==1.1.1
 mistune==0.8.4
 murmurhash==1.0.2
