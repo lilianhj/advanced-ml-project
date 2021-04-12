@@ -2,7 +2,7 @@
 
 ### Project Description
 
-We explore the possibilities of neural networks for predicting whether a Medicare/Medicaid adjudicatory decision can be successfully appealed through analyzing the the text from the original Administrative Law Judge (ALJ) court decision. This approach could potentially be applied to the numerous other policy domains with a similar structure of administrative law decisions and subsequent appeals.
+We explore the possibilities of neural networks for predicting whether a Medicare/Medicaid adjudicatory decision can be successfully appealed through analyzing the text from the original Administrative Law Judge (ALJ) court decision. This approach could potentially be applied to the numerous other policy domains with a similar structure of administrative law decisions and subsequent appeals.
 
 ### Team Members
 * [Ben Fogarty](https://github.com/fogarty-ben)
